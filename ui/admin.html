@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>sgin admin</title>
+  <style>
+    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 24px; color: #1f2933; background: #f7f8fa; }
+    h1 { font-size: 22px; margin: 0 0 16px; }
+    h2 { font-size: 16px; margin: 0 0 10px; }
+    section { background: #fff; border: 1px solid #d8dee6; border-radius: 6px; padding: 14px; margin: 0 0 14px; }
+    input, select, button { font: inherit; padding: 7px 8px; margin: 3px; border: 1px solid #b7c0cc; border-radius: 4px; }
+    button { background: #1f6feb; color: white; border-color: #1f6feb; cursor: pointer; }
+    pre { background: #111827; color: #e5e7eb; padding: 12px; overflow: auto; border-radius: 6px; max-height: 360px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+  </style>
+</head>
+<body>
+  <h1>sgin admin</h1>
+  <section>
+    <h2>Access Token</h2>
+    <input id="token" placeholder="Bearer token" style="width: min(760px, 90vw)">
+    <button onclick="loadState()">查询全部</button>
+  </section>
+  <div class="grid">
+    <section><h2>创建用户</h2><input id="u" placeholder="username"><input id="p" placeholder="password"><button onclick="post('/users',{username:v('u'),password:v('p')})">创建</button></section>
+    <section><h2>创建用户组</h2><input id="g" placeholder="group name"><button onclick="post('/groups',{name:v('g')})">创建</button></section>
+    <section><h2>创建角色</h2><input id="r" placeholder="role name"><button onclick="post('/roles',{name:v('r')})">创建</button></section>
+    <section><h2>创建权限点</h2><input id="pc" placeholder="permission code"><input id="pn" placeholder="name"><button onclick="post('/permissions',{code:v('pc'),name:v('pn')})">创建</button></section>
+    <section><h2>创建路由权限</h2><select id="rm"><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option></select><input id="rp" placeholder="/cmdb"><input id="rpc" placeholder="cmdb.view"><button onclick="post('/route-permissions',{method:v('rm'),path:v('rp'),permission_code:v('rpc')})">创建</button></section>
+    <section><h2>绑定用户到组</h2><input id="bugu" placeholder="user id"><input id="bugg" placeholder="group id"><button onclick="post('/users/'+v('bugu')+'/groups',{group_id:num('bugg')})">绑定</button></section>
+    <section><h2>绑定用户到角色</h2><input id="buru" placeholder="user id"><input id="burr" placeholder="role id"><button onclick="post('/users/'+v('buru')+'/roles',{role_id:num('burr')})">绑定</button></section>
+    <section><h2>绑定组到角色</h2><input id="bgrg" placeholder="group id"><input id="bgrr" placeholder="role id"><button onclick="post('/groups/'+v('bgrg')+'/roles',{role_id:num('bgrr')})">绑定</button></section>
+    <section><h2>绑定角色到权限</h2><input id="brpr" placeholder="role id"><input id="brpp" placeholder="permission id"><button onclick="post('/roles/'+v('brpr')+'/permissions',{permission_id:num('brpp')})">绑定</button></section>
+  </div>
+    <section>
+    <h2>查询</h2>
+    <input id="q" placeholder="输入用户名、组名、角色名、权限码或路由">
+    <button onclick="filterState()">查询</button>
+    <button onclick="loadState()">查询全部</button>
+  </section>
+  <section><h2>状态</h2><pre id="out">未加载</pre></section>
+  <script>
+    const base = location.pathname.replace(/\/$/, '') + '/api';
+    const v = id => document.getElementById(id).value.trim();
+    const num = id => Number(v(id));
+    const checked = id => document.getElementById(id).checked;
+    const headers = () => ({'Content-Type':'application/json','Authorization':'Bearer '+v('token')});
+    let state = null;
+    async function post(path, body) {
+      const res = await fetch(base + path, {method:'POST', headers:headers(), body:JSON.stringify(body)});
+      document.getElementById('out').textContent = await res.text();
+      if (res.ok) loadState();
+    }
+    async function loadState() {
+      const res = await fetch(base + '/state', {headers:headers()});
+      const text = await res.text();
+      try {
+        state = JSON.parse(text);
+        render(state);
+      } catch {
+        document.getElementById('out').textContent = text;
+      }
+    }
+    function render(data) {
+      document.getElementById('out').textContent = JSON.stringify(data, null, 2);
+    }
+    function filterState() {
+      if (!state) {
+        loadState().then(filterState);
+        return;
+      }
+      const keyword = v('q').toLowerCase();
+      if (!keyword) {
+        render(state);
+        return;
+      }
+      const filtered = {};
+      for (const [key, values] of Object.entries(state.data || state)) {
+        if (Array.isArray(values)) {
+          filtered[key] = values.filter(item => JSON.stringify(item).toLowerCase().includes(keyword));
+        }
+      }
+      render(filtered);
+    }
+  </script>
+</body>
+</html>
