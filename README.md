@@ -17,6 +17,14 @@
 - 极简管理界面：可选开启内置 Admin UI，用于创建账号、配置用户组/角色/权限点和动态路由权限。
 - 分页过滤：可选启用 page/page_size 分页，解析 `search`、`ordering` 和字段过滤参数。
 
+## 教程站
+
+故事化教程站单独维护在 `github.com/srelige/sgin-docs`，用于通过张三和李四的小故事讲解 sgin 的使用边界和典型场景。
+
+```txt
+https://srelige.github.io/sgin-docs/
+```
+
 ## 安装依赖
 
 ```bash
@@ -27,7 +35,7 @@ go get github.com/srelige/sgin
 
 ```txt
 github.com/srelige/sgin
-```
+```  
 
 ## 最小示例
 
