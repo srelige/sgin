@@ -248,9 +248,18 @@ func (v *ModelViewSet[T, ID]) resolveActionMiddlewares(method string) []gin.Hand
 func (v *ModelViewSet[T, ID]) validateRouteOptions() {
 	validateAuthConfig(v.Auth)
 	validateAuthConfig(v.AllowAnonymous)
+	validateSerializer(v.Serializer, ActionList, ActionRetrieve, ActionCreate, ActionUpdate, ActionPartialUpdate, ActionDestroy)
 	validateActionMiddlewareConfig(v.ActionMiddlewares)
 	validateHandlerConfig(v.Handlers)
 	validateExtraActions(v.ExtraActions)
+}
+
+func (v *ModelViewSet[T, ID]) validateReadOnlyRouteOptions() {
+	validateAuthConfig(v.Auth)
+	validateAuthConfig(v.AllowAnonymous)
+	validateSerializer(v.Serializer, ActionList, ActionRetrieve)
+	validateActionMiddlewareConfig(v.ActionMiddlewares)
+	validateHandlerConfig(v.Handlers)
 }
 
 // prepareExtraActions 预处理额外动作，避免直接注册会和 Gin 通配路由冲突的集合动作。
@@ -706,12 +715,9 @@ func (v *ModelViewSet[T, ID]) count(c *gin.Context, q Query, fallback int64) (in
 	return counter.Count(c.Request.Context(), q)
 }
 
-// serializer 返回用户 Serializer 或默认 JSON Serializer。
+// serializer 返回注册时显式配置的 Serializer。
 func (v *ModelViewSet[T, ID]) serializer() Serializer[T] {
-	if v.Serializer != nil {
-		return v.Serializer
-	}
-	return DefaultSerializer[T]{}
+	return v.Serializer
 }
 
 // pagination 返回用户分页器或默认 page/page_size 分页器。

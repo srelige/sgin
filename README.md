@@ -8,10 +8,10 @@
 - 配置加载：默认读取 `config.yaml`；不存在时读取 `config.example.yaml`；两者都不存在但存在 `SGIN_*` 环境变量时使用默认配置加环境变量覆盖，不生成示例文件；本地配置和环境变量都没有时才生成 `config.example.yaml` 并按它启动。
 - 配置优先级：代码显式配置 > 环境变量 > `config.yaml` > `config.example.yaml` > 默认配置。
 - 目录初始化：`app.InitDir()` 可创建推荐业务目录结构。
-- 统一响应：业务接口可以用框架 helper 返回一致的 `code/message/data/error` JSON 结构，避免每个 handler 自己拼响应格式。
+- 统一响应：业务接口可以用框架 helper 返回一致的 `code/message/data` JSON 结构，避免每个 handler 自己拼响应格式。
 - 自动 CRUD：普通数据库模型注册后即可获得列表、详情、创建、更新、删除接口；只读资源和单 URL 数据接口也有对应封装。
 - 数据访问扩展：默认走 GORM；需要接入非 GORM 存储、远程服务或特殊查询时，可以替换数据访问实现。
-- 输入输出转换：默认直接绑定和返回 JSON；需要隐藏字段或让列表、详情、创建、更新返回不同结构时，可以自定义转换逻辑。
+- 输入输出转换：ViewSet/APIView 默认数据链路必须显式配置 Serializer；可用 `ModelSerializer` 声明读写字段，也可显式选择 `FullModelSerializer` 全量绑定和返回模型。
 - 权限系统：支持用户、用户组、角色、权限点、动态路由权限，以及 `LoadAccess`、`RequireAnyGroup`、`RequireAnyRole` 等中间件。
 - 用户登录：`user.enabled=true` 时提供登录、JWT access token、refresh token 和管理员账号初始化。
 - 极简管理界面：可选开启内置 Admin UI，用于创建账号、配置用户组/角色/权限点和动态路由权限。
@@ -56,7 +56,7 @@ func main() {
 ```
 
 第一次启动且当前目录没有 `config.yaml` 和 `config.example.yaml` 时，如果没有任何框架识别的 `SGIN_*` 环境变量，框架会自动生成 `config.example.yaml`，但不会生成 `config.yaml`。
-之后如果仍没有 `config.yaml`，框架会继续读取 `config.example.yaml`，所以其中的 `jwt.secret` 会保持稳定。纯环境变量部署时，不会生成 `config.example.yaml`，运行配置来自默认值加环境变量覆盖。
+之后如果仍没有 `config.yaml`，框架会继续读取 `config.example.yaml`，所以其中的 `jwt.secret` 和 `user.admin.password` 会保持稳定。纯环境变量部署时，不会生成 `config.example.yaml`，运行配置来自默认值加环境变量覆盖；如果仍启用管理员初始化，必须显式配置 `SGIN_USER_ADMIN_PASSWORD`。
 
 可选初始化业务目录：
 
@@ -137,6 +137,7 @@ user:
   admin:
     init: true
     username: admin
+    password: "启动生成的随机密码"
 
 jwt:
   secret: "启动生成的随机密钥"
@@ -168,6 +169,7 @@ SGIN_USER_ENABLED
 SGIN_USER_PATH
 SGIN_USER_ADMIN_INIT
 SGIN_USER_ADMIN_USERNAME
+SGIN_USER_ADMIN_PASSWORD
 SGIN_JWT_SECRET
 SGIN_JWT_EXPIRED
 SGIN_JWT_REFRESH_EXPIRED
@@ -217,13 +219,14 @@ user:
   admin:
     init: true
     username: admin
+    password: "your-admin-password"
 jwt:
   secret: "your-secret"
   expired: 1
   refresh_expired: 168
 ```
 
-框架启动时会通过 GORM 连接配置中的数据库，自动迁移内置用户和访问控制相关表。`user.admin.init=true` 且不存在管理员账号时，会插入一条管理员账号；密码用 bcrypt 哈希后入库，明文密码只会在首次创建成功时输出到日志。管理员初始化还会创建内置 `admin` 用户组和 `admin` 组，并把管理员账号加入 `admin` 组。
+框架启动时会通过 GORM 连接配置中的数据库，自动迁移内置用户和访问控制相关表。`user.admin.init=true` 且不存在管理员账号时，会用 `user.admin.password` 创建管理员账号；密码用 bcrypt 哈希后入库，明文密码不会输出到日志。首次无配置文件、无环境变量启动时，框架会把随机管理员密码写入自动生成的 `config.example.yaml`，需要登录时请查看该配置文件。纯环境变量部署不会生成配置文件，如果启用管理员初始化但没有提供 `SGIN_USER_ADMIN_PASSWORD`，启动会直接失败。管理员初始化还会创建内置 `admin` 用户组和 `admin` 组，并把管理员账号加入 `admin` 组。
 
 支持的 `database.driver`：`sqlite` / `sqlite3`、`mysql`、`pg` / `postgres` / `postgresql`。
 
@@ -308,7 +311,7 @@ rest:
 app.POST("/upload", app.JWTAuth(), func(c *sgin.Context) {
 	file, err := c.FormFile("file")
 	if err != nil {
-		sgin.JSON(c, http.StatusBadRequest, sgin.Fail(http.StatusBadRequest, "invalid file", err.Error()))
+		sgin.JSON(c, http.StatusBadRequest, sgin.Fail(http.StatusBadRequest, "invalid file"))
 		return
 	}
 
@@ -334,17 +337,18 @@ app.POST("/upload", app.JWTAuth(), func(c *sgin.Context) {
 ```go
 cfg := sgin.DefaultConfig()
 cfg.Server.Addr = ":9000"
+cfg.User.Admin.Password = "change-me"
 
 app := sgin.New(
 	sgin.WithConfig(cfg),
 )
 ```
 
-`WithConfig` 的优先级最高，不会再被配置文件或环境变量覆盖。
+`WithConfig` 的优先级最高，不会再被配置文件或环境变量覆盖。默认配置启用管理员初始化，因此显式配置启动时需要设置 `cfg.User.Admin.Password`，或者关闭 `cfg.User.Enabled` / `cfg.User.Admin.Init`。
 
 ## 使用 ModelViewSet
 
-`ModelViewSet` 是 DRF-like 的全功能 CRUD 入口。普通数据库模型不需要手写 `List`、`Find`、`Create`、`Update`、`Delete`，注册模型后会自动生成 RESTful 路由，并使用配置中的数据库完成增删改查。
+`ModelViewSet` 是 DRF-like 的全功能 CRUD 入口。普通数据库模型不需要手写 `List`、`Find`、`Create`、`Update`、`Delete`，注册模型后会自动生成 RESTful 路由，并使用配置中的数据库完成增删改查。默认数据链路要求显式配置 `Serializer`，这样读写字段边界在路由注册处就能看见。
 
 下面用一个更接近正式项目的 `Book` 示例说明推荐分层。示例里 `POST /books` 会被 `Handlers` 接管，创建前走 service 层校验：只收录 1990 之后的书籍。
 
@@ -460,13 +464,13 @@ func NewBookHandler(bookService *services.BookService) *BookHandler {
 func (h *BookHandler) Create(c *gin.Context) {
 	var book models.Book
 	if err := c.ShouldBindJSON(&book); err != nil {
-		sgin.JSON(c, http.StatusBadRequest, sgin.Fail(http.StatusBadRequest, "invalid book", err.Error()))
+		sgin.JSON(c, http.StatusBadRequest, sgin.Fail(http.StatusBadRequest, "invalid book"))
 		return
 	}
 
 	if err := h.bookService.Create(c.Request.Context(), &book); err != nil {
 		if errors.Is(err, services.ErrBookYearTooOld) {
-			sgin.JSON(c, http.StatusBadRequest, sgin.Fail(http.StatusBadRequest, "只收录1990之后的书籍", "book_year_too_old"))
+			sgin.JSON(c, http.StatusBadRequest, sgin.Fail(http.StatusBadRequest, "只收录1990之后的书籍"))
 			return
 		}
 		sgin.HandleError(c, err)
@@ -499,6 +503,10 @@ func Book(app *sgin.App) sgin.ViewSet {
 
 	return &sgin.ModelViewSet[models.Book, uint]{
 		BasePath: "/books",
+		Serializer: sgin.ModelSerializer[models.Book]{
+			ReadFields:  []string{"id", "name", "info", "year"},
+			WriteFields: []string{"name", "info", "year"},
+		},
 		Handlers: map[string]gin.HandlerFunc{
 			"post": bookHandler.Create,
 		},
@@ -542,6 +550,31 @@ DELETE  /books/:id
 
 其中 `POST /books` 由 `Handlers` 中配置的自定义 handler 接管，其余方法继续使用 `ModelViewSet` 的默认 CRUD 行为。
 
+### Serializer 和字段边界
+
+`ModelViewSet`、`ReadOnlyModelViewSet` 和未设置自定义 `Handler` 的 `APIView` 都必须配置 `Serializer`。框架不会隐式把完整模型同时拿来做请求入参和响应出参，避免业务在无意识中开放整个模型读写。
+
+推荐优先使用 `ModelSerializer`：
+
+```go
+sgin.ModelSerializer[models.Book]{
+	ReadFields:  []string{"id", "name", "info", "year"},
+	WriteFields: []string{"name", "info", "year"},
+}
+```
+
+`ReadFields` 控制响应字段，`WriteFields` 控制创建和更新时允许写入的 JSON 字段。写入侧是严格白名单：请求体里出现未声明字段时直接返回 400，不会静默忽略。例如没有把 `is_admin`、`owner_id`、`enabled` 声明为可写字段时，客户端传这些字段会被拒绝。
+
+也可以使用 `ExcludeFields` 表示“除了这些字段以外都参与读写”。这种方式适合字段较稳定、排除项明确的模型；安全要求更高的外部接口更推荐使用 `ReadFields` 和 `WriteFields` 白名单。
+
+如果你确实希望完整模型参与输入和输出，可以显式选择：
+
+```go
+sgin.FullModelSerializer[models.Book]{}
+```
+
+`FullModelSerializer` 会绑定和返回模型里所有 JSON 可见字段，适合 demo、内部工具或你确认模型没有敏感/越权字段的场景。正式业务模型里如果包含 `role`、`is_admin`、`owner_id`、`enabled`、`password_hash` 这类字段，应优先使用 `ModelSerializer` 或自定义 Serializer。
+
 ### 额外动作路由
 
 `ModelViewSet` 支持轻量额外动作路由，用于把 `reset-password`、`sync`、`export` 这类非 CRUD 动作继续聚合在资源 ViewSet 下。
@@ -550,6 +583,10 @@ DELETE  /books/:id
 app.Register(&sgin.ModelViewSet[models.User, uint]{
 	BasePath: "/users",
 	Auth:     []string{"all"},
+	Serializer: sgin.ModelSerializer[models.User]{
+		ReadFields:  []string{"id", "username", "email"},
+		WriteFields: []string{"username", "email"},
+	},
 	Middlewares: []gin.HandlerFunc{
 		app.LoadAccess(),
 		app.RequireRoutePermission(),
@@ -600,6 +637,9 @@ GET  /users/export             -> users.export
 ```go
 app.Register(&sgin.ReadOnlyModelViewSet[models.Book, uint]{
 	BasePath: "/books",
+	Serializer: sgin.ModelSerializer[models.Book]{
+		ReadFields: []string{"id", "name", "info", "year"},
+	},
 })
 ```
 
@@ -617,6 +657,10 @@ GET /books/:id
 ```go
 app.Register(&sgin.ModelViewSet[Book, uint]{
 	BasePath: "/books",
+	Serializer: sgin.ModelSerializer[Book]{
+		ReadFields:  []string{"id", "name", "info", "year"},
+		WriteFields: []string{"name", "info", "year"},
+	},
 })
 ```
 
@@ -648,6 +692,10 @@ database:
 app.Register(&sgin.ModelViewSet[Book, uint]{
 	BasePath:   "/books",
 	Repository: myBookRepo,
+	Serializer: sgin.ModelSerializer[Book]{
+		ReadFields:  []string{"id", "name", "info", "year"},
+		WriteFields: []string{"name", "info", "year"},
+	},
 })
 ```
 
@@ -703,6 +751,9 @@ func Cars(app *sgin.App) sgin.ViewSet {
 	return &sgin.APIView[models.Car, uint]{
 		Method: "get",
 		Path:   "/cars",
+		Serializer: sgin.ModelSerializer[models.Car]{
+			ReadFields: []string{"id", "plate_no", "status"},
+		},
 	}
 }
 ```
@@ -848,6 +899,10 @@ Authorization: Bearer <access_token>
 app.Register(&sgin.ModelViewSet[Book, uint]{
 	BasePath: "/books",
 	Auth:     []string{"all"},
+	Serializer: sgin.ModelSerializer[Book]{
+		ReadFields:  []string{"id", "name", "info", "year"},
+		WriteFields: []string{"name", "info", "year"},
+	},
 })
 ```
 
@@ -856,6 +911,7 @@ app.Register(&sgin.ModelViewSet[Book, uint]{
 ```go
 app.Register(&sgin.ModelViewSet[Book, uint]{
 	BasePath:       "/books",
+	Serializer:     sgin.FullModelSerializer[Book]{},
 	AllowAnonymous: []string{sgin.ActionList},
 })
 
@@ -876,7 +932,7 @@ API Key 示例：
 func APIKeyAuth(expected string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.GetHeader("X-API-Key") != expected {
-			sgin.JSON(c, http.StatusUnauthorized, sgin.Fail(http.StatusUnauthorized, "invalid api key", "invalid_token"))
+			sgin.JSON(c, http.StatusUnauthorized, sgin.Fail(http.StatusUnauthorized, "invalid api key"))
 			c.Abort()
 			return
 		}
@@ -887,6 +943,7 @@ func APIKeyAuth(expected string) gin.HandlerFunc {
 app.Register(&sgin.APIView[models.CMDBAsset, uint]{
 	Method:         "get",
 	Path:           "/cmdb",
+	Serializer:     sgin.FullModelSerializer[models.CMDBAsset]{},
 	AllowAnonymous: []string{"all"},
 	Middlewares: []gin.HandlerFunc{
 		APIKeyAuth("dev-secret"),
@@ -900,7 +957,7 @@ app.Register(&sgin.APIView[models.CMDBAsset, uint]{
 func InternalTokenAuth(secret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.GetHeader("X-Internal-Token") != secret {
-			sgin.JSON(c, http.StatusUnauthorized, sgin.Fail(http.StatusUnauthorized, "invalid internal token", "invalid_token"))
+			sgin.JSON(c, http.StatusUnauthorized, sgin.Fail(http.StatusUnauthorized, "invalid internal token"))
 			c.Abort()
 			return
 		}
@@ -923,7 +980,7 @@ func CustomBearerAuth(app *sgin.App) gin.HandlerFunc {
 		token := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
 		userID, ok := verifyCustomToken(token)
 		if !ok {
-			sgin.JSON(c, http.StatusUnauthorized, sgin.Fail(http.StatusUnauthorized, "invalid token", "invalid_token"))
+			sgin.JSON(c, http.StatusUnauthorized, sgin.Fail(http.StatusUnauthorized, "invalid token"))
 			c.Abort()
 			return
 		}
@@ -936,7 +993,7 @@ func CustomBearerAuth(app *sgin.App) gin.HandlerFunc {
 		}
 		var user sgin.UserAccount
 		if err := db.First(&user, userID).Error; err != nil {
-			sgin.JSON(c, http.StatusUnauthorized, sgin.Fail(http.StatusUnauthorized, "invalid token", "invalid_token"))
+			sgin.JSON(c, http.StatusUnauthorized, sgin.Fail(http.StatusUnauthorized, "invalid token"))
 			c.Abort()
 			return
 		}
@@ -949,6 +1006,7 @@ func CustomBearerAuth(app *sgin.App) gin.HandlerFunc {
 app.Register(&sgin.APIView[models.CMDBAsset, uint]{
 	Method:         "get",
 	Path:           "/cmdb",
+	Serializer:     sgin.FullModelSerializer[models.CMDBAsset]{},
 	AllowAnonymous: []string{"all"},
 	Middlewares: []gin.HandlerFunc{
 		CustomBearerAuth(app),
@@ -966,9 +1024,10 @@ app.Register(&sgin.APIView[models.CMDBAsset, uint]{
 
 ```go
 app.Register(&sgin.APIView[models.CMDBAsset, uint]{
-	Method: "get",
-	Path:   "/cmdb",
-	Auth:   []string{"all"},
+	Method:     "get",
+	Path:       "/cmdb",
+	Serializer: sgin.FullModelSerializer[models.CMDBAsset]{},
+	Auth:       []string{"all"},
 	Middlewares: []gin.HandlerFunc{
 		app.LoadAccess(),
 	},
@@ -981,9 +1040,10 @@ app.Register(&sgin.APIView[models.CMDBAsset, uint]{
 
 ```go
 app.Register(&sgin.APIView[models.CMDBAsset, uint]{
-	Method: "get",
-	Path:   "/cmdb",
-	Auth:   []string{"all"},
+	Method:     "get",
+	Path:       "/cmdb",
+	Serializer: sgin.FullModelSerializer[models.CMDBAsset]{},
+	Auth:       []string{"all"},
 	Middlewares: []gin.HandlerFunc{
 		app.LoadAccess(),
 		app.RequireAnyGroup("dev", "ops"),
@@ -997,9 +1057,10 @@ app.Register(&sgin.APIView[models.CMDBAsset, uint]{
 
 ```go
 app.Register(&sgin.APIView[models.CMDBAsset, uint]{
-	Method: "get",
-	Path:   "/cmdb",
-	Auth:   []string{"all"},
+	Method:     "get",
+	Path:       "/cmdb",
+	Serializer: sgin.FullModelSerializer[models.CMDBAsset]{},
+	Auth:       []string{"all"},
 	Middlewares: []gin.HandlerFunc{
 		app.LoadAccess(),
 		app.RequireAnyRole("cmdb_reader", "cmdb_admin"),
@@ -1013,9 +1074,10 @@ app.Register(&sgin.APIView[models.CMDBAsset, uint]{
 
 ```go
 app.Register(&sgin.APIView[models.CMDBAsset, uint]{
-	Method: "get",
-	Path:   "/cmdb",
-	Auth:   []string{"all"},
+	Method:     "get",
+	Path:       "/cmdb",
+	Serializer: sgin.FullModelSerializer[models.CMDBAsset]{},
+	Auth:       []string{"all"},
 	Middlewares: []gin.HandlerFunc{
 		app.LoadAccess(),
 		app.RequireRoutePermission(),
@@ -1052,36 +1114,39 @@ admin
 read_only
 ```
 
-### 认证与权限错误语义
+### 错误响应和语言
 
-sgin 固定区分认证失败和权限失败，方便客户端稳定判断是重新登录还是展示无权限提示。
+sgin 的框架错误响应固定只有 `code`、`message` 和 `data` 三个字段：
 
-`401 Unauthorized` 表示身份没有成立：
-
-```txt
-authentication_required  未提供认证信息
-invalid_authorization    Authorization 请求头格式错误
-invalid_token            token 无效或对应用户不存在
-token_expired            access token 已过期
-invalid_token_type       token 类型不符合当前接口要求
-account_disabled         账号已禁用
-invalid_credentials      登录用户名或密码错误
-invalid_refresh_token    refresh token 无效或已被轮换
-refresh_token_expired    refresh token 已过期
+```json
+{
+  "code": 401,
+  "message": "Unauthorized",
+  "data": {}
+}
 ```
 
-`403 Forbidden` 表示身份已经成立，但权限不足：
+`code` 与 HTTP status 保持一致，客户端应优先用它区分粗粒度语义。`401` 表示身份没有成立，适合进入重新登录或刷新 token 流程；`403` 表示身份已经成立但权限不足，适合提示无权访问。业务自定义 `Permission` 仍然可以返回自己的内部 `Decision.Code` 供服务端日志和排查使用，但框架默认不会把这些内部细节暴露给客户端。
 
-```txt
-permission_denied                 通用权限拒绝
-admin_required                    需要管理员权限
-group_required                    需要命中指定用户组
-role_required                     需要命中指定角色
-route_permission_required         当前用户缺少路由要求的权限点
-route_permission_not_configured   当前路由没有配置动态权限
+框架级错误不会把 `err.Error()` 直接返回给客户端，未分类内部错误以及所有 5xx 默认都返回安全的 `Internal Server Error`；原始错误、路径、驱动细节等只写入服务端日志。业务 handler 使用 `sgin.Fail` 时也建议返回稳定、安全、面向用户的 message，不要把数据库错误、文件路径、第三方驱动错误等细节拼进响应。
+
+默认语言是英文。启动时可以切换为简体中文：
+
+```go
+app := sgin.New()
+app.Language("cn")
 ```
 
-这些 code 放在统一响应的 `error` 字段里；HTTP 状态码用于粗粒度语义，`error` 用于前端分支和日志检索。业务自定义 `Permission` 仍然可以返回自己的 `Decision.Code`，框架不会强行覆盖。
+内置语言只支持 `en` 和 `cn`。`app.Language("cn")` 后，框架默认错误 message 会使用简体中文，例如 `401` 返回 `未认证或登录已失效`，`403` 返回 `无权访问`，`5xx` 返回 `服务内部错误`。未支持的语言会回退到英文。
+
+如果后续业务需要扩展其他语言，可以先注册语言包，再切换语言：
+
+```go
+app.RegisterLanguage("jp", map[int]string{
+	http.StatusBadRequest: "bad request jp",
+})
+app.Language("jp")
+```
 ## 分页和过滤
 
 默认情况下 `rest.pagination=false`，列表接口不分页。即使请求里传了 `page` / `page_size`，框架也会忽略分页参数，直接返回完整列表。业务过滤条件由 `FilterFields` 显式声明：
@@ -1089,6 +1154,7 @@ route_permission_not_configured   当前路由没有配置动态权限
 ```go
 app.Register(&sgin.ModelViewSet[Book, uint]{
 	BasePath:        "/books",
+	Serializer:      sgin.FullModelSerializer[Book]{},
 	FilterFields:    []string{"name", "info", "year"},
 	OrderingFields:  []string{"name", "year", "id"},
 	DefaultOrdering: "-id",
@@ -1157,13 +1223,14 @@ sgin.Query{
 ```go
 app.Register(&sgin.ModelViewSet[Book, uint]{
 	BasePath:          "/books",
+	Serializer:        sgin.FullModelSerializer[Book]{},
 	DisablePagination: true,
 })
 ```
 
 ## 测试
 
-当前测试覆盖配置加载和校验、目录和表初始化、用户登录和 refresh token 轮换、认证/权限稳定错误码、管理员初始化、动态访问控制、Admin UI API、ViewSet CRUD、分页过滤、默认 GORM Repository、权限组合、对象权限和查询权限等关键路径。
+当前测试覆盖配置加载和校验、目录和表初始化、用户登录和 refresh token 轮换、安全错误响应、管理员初始化、动态访问控制、Admin UI API、ViewSet CRUD、Serializer 字段白名单、分页过滤、默认 GORM Repository、权限组合、对象权限和查询权限等关键路径。
 
 ```bash
 go test ./...

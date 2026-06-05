@@ -20,21 +20,22 @@ type authViewSetBook struct {
 func TestModelViewSetAuthAllRequiresToken(t *testing.T) {
 	app, token := newAuthTestApp(t)
 	app.Register(&ModelViewSet[authViewSetBook, uint]{
-		BasePath: "/books",
-		Auth:     []string{"all"},
+		BasePath:   "/books",
+		Serializer: FullModelSerializer[authViewSetBook]{},
+		Auth:       []string{"all"},
 	})
 
 	w := performAuthRequest(app, http.MethodGet, "/books", "", nil)
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected GET without token to be unauthorized, got %d", w.Code)
 	}
-	assertResponseError(t, w, ErrCodeAuthenticationRequired)
+	assertResponseMessage(t, w, "Unauthorized")
 
 	w = performAuthRequest(app, http.MethodPost, "/books", "", bytes.NewBufferString(`{"title":"go"}`))
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected POST without token to be unauthorized, got %d", w.Code)
 	}
-	assertResponseError(t, w, ErrCodeAuthenticationRequired)
+	assertResponseMessage(t, w, "Unauthorized")
 
 	w = performAuthRequest(app, http.MethodGet, "/books", token, nil)
 	if w.Code != http.StatusOK {
@@ -45,8 +46,9 @@ func TestModelViewSetAuthAllRequiresToken(t *testing.T) {
 func TestModelViewSetAuthSelectedMethods(t *testing.T) {
 	app, _ := newAuthTestApp(t)
 	app.Register(&ModelViewSet[authViewSetBook, uint]{
-		BasePath: "/books",
-		Auth:     []string{"get", "delete"},
+		BasePath:   "/books",
+		Serializer: FullModelSerializer[authViewSetBook]{},
+		Auth:       []string{"get", "delete"},
 	})
 
 	w := performAuthRequest(app, http.MethodGet, "/books", "", nil)
@@ -69,6 +71,7 @@ func TestDefaultAuthRequiresTokenAndAllowsAnonymousAction(t *testing.T) {
 	app, token := newGlobalAuthTestApp(t)
 	app.Register(&ModelViewSet[authViewSetBook, uint]{
 		BasePath:       "/books",
+		Serializer:     FullModelSerializer[authViewSetBook]{},
 		AllowAnonymous: []string{ActionList},
 	})
 
@@ -81,7 +84,7 @@ func TestDefaultAuthRequiresTokenAndAllowsAnonymousAction(t *testing.T) {
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected default-protected create to be unauthorized, got %d", w.Code)
 	}
-	assertResponseError(t, w, ErrCodeAuthenticationRequired)
+	assertResponseMessage(t, w, "Unauthorized")
 
 	w = performAuthRequest(app, http.MethodPost, "/books", token, bytes.NewBufferString(`{"title":"go"}`))
 	if w.Code != http.StatusCreated {
@@ -92,8 +95,9 @@ func TestDefaultAuthRequiresTokenAndAllowsAnonymousAction(t *testing.T) {
 func TestGlobalAuthCanBeDisabledAndActionCanRequireToken(t *testing.T) {
 	app, token := newAuthTestApp(t)
 	app.Register(&ModelViewSet[authViewSetBook, uint]{
-		BasePath: "/books",
-		Auth:     []string{ActionCreate},
+		BasePath:   "/books",
+		Serializer: FullModelSerializer[authViewSetBook]{},
+		Auth:       []string{ActionCreate},
 	})
 
 	w := performAuthRequest(app, http.MethodGet, "/books", "", nil)
@@ -119,7 +123,7 @@ func TestDefaultAuthDoesNotProtectLoginRoute(t *testing.T) {
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected login handler to return unauthorized credentials, got %d", w.Code)
 	}
-	assertResponseError(t, w, ErrCodeInvalidCredentials)
+	assertResponseMessage(t, w, "Unauthorized")
 }
 
 func TestAppAllowAnonymousBypassesDefaultAuthForNativeRoute(t *testing.T) {
@@ -158,7 +162,7 @@ func TestJWTAuthStableErrorCodes(t *testing.T) {
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected missing token to be unauthorized, got %d", w.Code)
 	}
-	assertResponseError(t, w, ErrCodeAuthenticationRequired)
+	assertResponseMessage(t, w, "Unauthorized")
 
 	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
 	req.Header.Set("Authorization", "Token "+token)
@@ -167,13 +171,13 @@ func TestJWTAuthStableErrorCodes(t *testing.T) {
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected invalid authorization header to be unauthorized, got %d", w.Code)
 	}
-	assertResponseError(t, w, ErrCodeInvalidAuthorization)
+	assertResponseMessage(t, w, "Unauthorized")
 
 	w = performAuthRequest(app, http.MethodGet, "/protected", "invalid-token", nil)
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected invalid token to be unauthorized, got %d", w.Code)
 	}
-	assertResponseError(t, w, ErrCodeInvalidToken)
+	assertResponseMessage(t, w, "Unauthorized")
 
 	db, err := app.DB()
 	if err != nil {
@@ -191,7 +195,7 @@ func TestJWTAuthStableErrorCodes(t *testing.T) {
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected expired token to be unauthorized, got %d", w.Code)
 	}
-	assertResponseError(t, w, ErrCodeTokenExpired)
+	assertResponseMessage(t, w, "Unauthorized")
 
 	refresh, err := makeAuthToken(app.config, &user, "refresh", time.Hour)
 	if err != nil {
@@ -201,7 +205,7 @@ func TestJWTAuthStableErrorCodes(t *testing.T) {
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected wrong token type to be unauthorized, got %d", w.Code)
 	}
-	assertResponseError(t, w, ErrCodeInvalidTokenType)
+	assertResponseMessage(t, w, "Unauthorized")
 
 	if err := db.Model(&user).Update("enabled", false).Error; err != nil {
 		t.Fatalf("disable user returned error: %v", err)
@@ -210,7 +214,7 @@ func TestJWTAuthStableErrorCodes(t *testing.T) {
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected disabled account to be unauthorized, got %d", w.Code)
 	}
-	assertResponseError(t, w, ErrCodeAccountDisabled)
+	assertResponseMessage(t, w, "Unauthorized")
 }
 
 func TestModelViewSetAuthRejectsUnknownMethod(t *testing.T) {
@@ -222,15 +226,17 @@ func TestModelViewSetAuthRejectsUnknownMethod(t *testing.T) {
 	}()
 
 	app.Register(&ModelViewSet[authViewSetBook, uint]{
-		BasePath: "/books",
-		Auth:     []string{"gett"},
+		BasePath:   "/books",
+		Serializer: FullModelSerializer[authViewSetBook]{},
+		Auth:       []string{"gett"},
 	})
 }
 
 func TestModelViewSetMiddlewaresAndHandlers(t *testing.T) {
 	app, _ := newAuthTestApp(t)
 	app.Register(&ModelViewSet[authViewSetBook, uint]{
-		BasePath: "/books",
+		BasePath:   "/books",
+		Serializer: FullModelSerializer[authViewSetBook]{},
 		Middlewares: []gin.HandlerFunc{
 			func(c *gin.Context) {
 				c.Set("viewset", "ok")
@@ -267,8 +273,9 @@ func TestModelViewSetMiddlewaresAndHandlers(t *testing.T) {
 func TestModelViewSetExtraActionsUseAuthAndMiddlewares(t *testing.T) {
 	app, token := newAuthTestApp(t)
 	app.Register(&ModelViewSet[authViewSetBook, uint]{
-		BasePath: "/books",
-		Auth:     []string{"all"},
+		BasePath:   "/books",
+		Serializer: FullModelSerializer[authViewSetBook]{},
+		Auth:       []string{"all"},
 		Middlewares: []gin.HandlerFunc{
 			func(c *gin.Context) {
 				c.Set("viewset", "ok")
@@ -360,7 +367,8 @@ func TestModelViewSetRejectsUnknownRouteExtensionMethod(t *testing.T) {
 	}()
 
 	app.Register(&ModelViewSet[authViewSetBook, uint]{
-		BasePath: "/books",
+		BasePath:   "/books",
+		Serializer: FullModelSerializer[authViewSetBook]{},
 		ActionMiddlewares: map[string][]gin.HandlerFunc{
 			"remove": nil,
 		},
@@ -376,7 +384,8 @@ func TestModelViewSetRejectsInvalidExtraAction(t *testing.T) {
 	}()
 
 	app.Register(&ModelViewSet[authViewSetBook, uint]{
-		BasePath: "/books",
+		BasePath:   "/books",
+		Serializer: FullModelSerializer[authViewSetBook]{},
 		ExtraActions: []ExtraAction{
 			{
 				Method:  "post",
@@ -396,7 +405,8 @@ func TestModelViewSetRejectsCollectionExtraActionThatLooksLikeID(t *testing.T) {
 	}()
 
 	app.Register(&ModelViewSet[authViewSetBook, uint]{
-		BasePath: "/books",
+		BasePath:   "/books",
+		Serializer: FullModelSerializer[authViewSetBook]{},
 		ExtraActions: []ExtraAction{
 			{
 				Method:  "get",
@@ -469,14 +479,21 @@ func performAuthRequest(app *App, method, path, token string, body *bytes.Buffer
 	return w
 }
 
-// assertResponseError 检查统一响应里的稳定错误码。
-func assertResponseError(t *testing.T, w *httptest.ResponseRecorder, code string) {
+// assertResponseMessage 检查统一错误响应里的安全 message。
+func assertResponseMessage(t *testing.T, w *httptest.ResponseRecorder, message string) {
 	t.Helper()
 	var resp Response
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v body=%s", err, w.Body.String())
 	}
-	if resp.Error != code {
-		t.Fatalf("expected error code %q, got %v body=%s", code, resp.Error, w.Body.String())
+	if resp.Message != message {
+		t.Fatalf("expected message %q, got %q body=%s", message, resp.Message, w.Body.String())
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode raw response: %v body=%s", err, w.Body.String())
+	}
+	if _, ok := raw["error"]; ok {
+		t.Fatalf("response should not contain error field: %s", w.Body.String())
 	}
 }

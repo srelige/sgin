@@ -74,6 +74,7 @@ type UserConfig struct {
 type UserAdminConfig struct {
 	Init     bool   `yaml:"init" json:"init"`
 	Username string `yaml:"username" json:"username"`
+	Password string `yaml:"password" json:"password"`
 }
 
 // AdminConfig 描述内置极简管理界面。
@@ -200,6 +201,9 @@ func ValidateConfig(cfg Config) error {
 	}
 	if cfg.User.Enabled && cfg.User.Admin.Init && cfg.User.Admin.Username == "" {
 		return fmt.Errorf("sgin: user.admin.username cannot be empty when admin init is enabled")
+	}
+	if cfg.User.Enabled && cfg.User.Admin.Init && cfg.User.Admin.Password == "" {
+		return fmt.Errorf("sgin: user.admin.password cannot be empty when admin init is enabled")
 	}
 	if cfg.User.Enabled && cfg.JWT.Secret == "" {
 		return fmt.Errorf("sgin: jwt.secret cannot be empty when user is enabled")

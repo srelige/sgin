@@ -51,7 +51,7 @@ func (v *ReadOnlyModelViewSet[T, ID]) Path() string {
 func (v *ReadOnlyModelViewSet[T, ID]) Register(r gin.IRouter) {
 	base := v.Path()
 	model := v.model()
-	model.validateRouteOptions()
+	model.validateReadOnlyRouteOptions()
 	model.markAnonymousRoute(http.MethodGet, base, ActionList)
 	r.GET(base, model.routeHandlers(http.MethodGet, ActionList, model.List)...)
 	item := joinIDPath(base)

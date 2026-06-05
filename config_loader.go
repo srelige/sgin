@@ -131,6 +131,7 @@ func ApplyEnvOverrides(cfg *Config) {
 	setStringEnv("SGIN_USER_PATH", &cfg.User.Path)
 	setBoolEnv("SGIN_USER_ADMIN_INIT", &cfg.User.Admin.Init)
 	setStringEnv("SGIN_USER_ADMIN_USERNAME", &cfg.User.Admin.Username)
+	setStringEnv("SGIN_USER_ADMIN_PASSWORD", &cfg.User.Admin.Password)
 	setStringEnv("SGIN_JWT_SECRET", &cfg.JWT.Secret)
 	setIntEnv("SGIN_JWT_EXPIRED", &cfg.JWT.Expired)
 	setIntEnv("SGIN_JWT_REFRESH_EXPIRED", &cfg.JWT.RefreshExpired)
@@ -158,6 +159,7 @@ var sginEnvKeys = []string{
 	"SGIN_USER_PATH",
 	"SGIN_USER_ADMIN_INIT",
 	"SGIN_USER_ADMIN_USERNAME",
+	"SGIN_USER_ADMIN_PASSWORD",
 	"SGIN_JWT_SECRET",
 	"SGIN_JWT_EXPIRED",
 	"SGIN_JWT_REFRESH_EXPIRED",

@@ -110,6 +110,7 @@ func TestModelViewSetCRUDAndQueryParsing(t *testing.T) {
 	app.Register(&ModelViewSet[testUser, uint]{
 		BasePath:   "/users",
 		Repository: repo,
+		Serializer: FullModelSerializer[testUser]{},
 	})
 
 	w := performRequest(app, http.MethodGet, "/users?page=3&page_size=1&search=tom&ordering=-id&status=active", nil)
@@ -180,6 +181,7 @@ func TestModelViewSetCanUseDefaultGORMRepository(t *testing.T) {
 
 	app.Register(&ModelViewSet[gormViewSetUser, uint]{
 		BasePath:       "/gorm-users",
+		Serializer:     FullModelSerializer[gormViewSetUser]{},
 		SearchFields:   []string{"name", "email"},
 		OrderingFields: []string{"id", "name"},
 		FilterFields:   []string{"status"},
@@ -249,6 +251,7 @@ func TestModelViewSetDispatchesCollectionExtraActionBesideRetrieve(t *testing.T)
 	app.Register(&ModelViewSet[testUser, uint]{
 		BasePath:   "/users",
 		Repository: newMemoryUserRepo(),
+		Serializer: FullModelSerializer[testUser]{},
 		ExtraActions: []ExtraAction{
 			{
 				Method: "get",
@@ -295,6 +298,7 @@ func TestModelViewSetGORMRepositoryCombinesFiltersAndPagination(t *testing.T) {
 
 	app.Register(&ModelViewSet[gormFilterBook, uint]{
 		BasePath:        "/filter-books",
+		Serializer:      FullModelSerializer[gormFilterBook]{},
 		OrderingFields:  []string{"id", "name", "year"},
 		DefaultOrdering: "-name",
 		FilterFields:    []string{"name", "info", "year"},
@@ -396,6 +400,7 @@ func TestModelViewSetUsesDefaultPageConfig(t *testing.T) {
 	app.Register(&ModelViewSet[testUser, uint]{
 		BasePath:   "/users",
 		Repository: repo,
+		Serializer: FullModelSerializer[testUser]{},
 	})
 
 	w := performRequest(app, http.MethodGet, "/users", nil)
@@ -413,6 +418,7 @@ func TestModelViewSetDisablesPaginationByDefault(t *testing.T) {
 	app.Register(&ModelViewSet[testUser, uint]{
 		BasePath:   "/users",
 		Repository: repo,
+		Serializer: FullModelSerializer[testUser]{},
 	})
 
 	w := performRequest(app, http.MethodGet, "/users?page=3&page_size=1&search=tom&ordering=-id&status=active", nil)
@@ -456,6 +462,7 @@ func TestModelViewSetCanDisablePaginationWhenGlobalEnabled(t *testing.T) {
 	app.Register(&ModelViewSet[testUser, uint]{
 		BasePath:          "/users",
 		Repository:        repo,
+		Serializer:        FullModelSerializer[testUser]{},
 		DisablePagination: true,
 	})
 
@@ -473,6 +480,7 @@ func TestActionPermissionCanDenyWrite(t *testing.T) {
 	app.Register(&ModelViewSet[testUser, uint]{
 		BasePath:   "/users",
 		Repository: newMemoryUserRepo(),
+		Serializer: FullModelSerializer[testUser]{},
 		ActionPermissions: map[string][]Permission{
 			ActionCreate: {ReadOnly{}},
 		},
@@ -492,6 +500,7 @@ func TestModelViewSetPartialUpdateObjectAndQueryPermissions(t *testing.T) {
 	app.Register(&ModelViewSet[testUser, uint]{
 		BasePath:   "/patch-users",
 		Repository: patchRepo,
+		Serializer: FullModelSerializer[testUser]{},
 	})
 
 	body := bytes.NewBufferString(`{"id":1,"name":"Tom Patch","email":"tom2@example.com"}`)
@@ -507,6 +516,7 @@ func TestModelViewSetPartialUpdateObjectAndQueryPermissions(t *testing.T) {
 	app.Register(&ModelViewSet[testUser, uint]{
 		BasePath:          "/object-users",
 		Repository:        objectRepo,
+		Serializer:        FullModelSerializer[testUser]{},
 		ObjectPermissions: []ObjectPermission[testUser]{denyTestObjectPermission{}},
 	})
 
@@ -519,6 +529,7 @@ func TestModelViewSetPartialUpdateObjectAndQueryPermissions(t *testing.T) {
 	app.Register(&ModelViewSet[testUser, uint]{
 		BasePath:         "/query-users",
 		Repository:       queryRepo,
+		Serializer:       FullModelSerializer[testUser]{},
 		QueryPermissions: []QueryPermission[testUser]{statusScopePermission{}},
 	})
 
@@ -536,6 +547,7 @@ func TestReadOnlyModelViewSetOnlyRegistersReadRoutes(t *testing.T) {
 	app.Register(&ReadOnlyModelViewSet[testUser, uint]{
 		BasePath:   "/users",
 		Repository: newMemoryUserRepo(),
+		Serializer: FullModelSerializer[testUser]{},
 	})
 
 	w := performRequest(app, http.MethodGet, "/users/1", nil)

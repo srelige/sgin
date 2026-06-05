@@ -31,6 +31,9 @@ type App struct {
 	anonymousMu     sync.RWMutex
 	anonymousRoutes map[string]struct{}
 	defaultAuth     bool
+	languageMu      sync.RWMutex
+	language        string
+	messages        map[string]map[int]string
 
 	// db 是按 database 配置延迟打开的默认 GORM 连接，供默认 ModelViewSet 使用。
 	dbMu sync.Mutex
@@ -101,7 +104,7 @@ func NewE(opts ...Option) (*App, error) {
 		return nil, err
 	}
 	if userBootstrap.AdminCreated {
-		log.Printf("sgin: admin account created username=%q password=%q", userBootstrap.AdminUsername, userBootstrap.AdminPassword)
+		log.Printf("sgin: admin account created username=%q; initial password comes from user.admin.password", userBootstrap.AdminUsername)
 	}
 
 	app := &App{
@@ -110,7 +113,10 @@ func NewE(opts ...Option) (*App, error) {
 		permissions:     NewPermissionRegistry(),
 		userBootstrap:   userBootstrap,
 		anonymousRoutes: map[string]struct{}{},
+		language:        defaultLanguage,
+		messages:        defaultMessages(),
 	}
+	app.Use(app.languageMiddleware())
 	registerUserRoutes(app)
 	registerAdminRoutes(app)
 	if cfg.Auth.Required {

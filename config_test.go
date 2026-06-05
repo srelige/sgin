@@ -27,6 +27,9 @@ func TestLoadConfigGeneratesExampleAndUsesDefaults(t *testing.T) {
 	if cfg.JWT.Secret == "" {
 		t.Fatal("expected generated jwt secret")
 	}
+	if cfg.User.Admin.Password == "" {
+		t.Fatal("expected generated admin password")
+	}
 	if !cfg.Auth.Required {
 		t.Fatal("expected auth.required to default to true")
 	}
@@ -79,6 +82,7 @@ func TestLoadConfigUsesEnvWithoutGeneratingExample(t *testing.T) {
 	examplePath := filepath.Join(dir, "config.example.yaml")
 	t.Setenv("SGIN_APP_NAME", "from-env-only")
 	t.Setenv("SGIN_AUTH_REQUIRED", "false")
+	t.Setenv("SGIN_USER_ENABLED", "false")
 
 	cfg, err := LoadConfig(LoadOptions{
 		ConfigFile:          configPath,
@@ -103,6 +107,50 @@ func TestLoadConfigUsesEnvWithoutGeneratingExample(t *testing.T) {
 	}
 }
 
+func TestLoadConfigEnvOnlyRequiresAdminPassword(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	examplePath := filepath.Join(dir, "config.example.yaml")
+	t.Setenv("SGIN_APP_NAME", "env-only")
+
+	_, err := LoadConfig(LoadOptions{
+		ConfigFile:          configPath,
+		ExampleConfigFile:   examplePath,
+		AutoGenerateExample: true,
+		UseEnv:              true,
+	})
+	if err == nil {
+		t.Fatal("expected missing admin password error")
+	}
+	if _, err := os.Stat(examplePath); !os.IsNotExist(err) {
+		t.Fatalf("config.example.yaml should not be generated when env is present, stat err=%v", err)
+	}
+}
+
+func TestLoadConfigEnvOnlyUsesAdminPassword(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	examplePath := filepath.Join(dir, "config.example.yaml")
+	t.Setenv("SGIN_APP_NAME", "env-only")
+	t.Setenv("SGIN_USER_ADMIN_PASSWORD", "env-admin-password")
+
+	cfg, err := LoadConfig(LoadOptions{
+		ConfigFile:          configPath,
+		ExampleConfigFile:   examplePath,
+		AutoGenerateExample: true,
+		UseEnv:              true,
+	})
+	if err != nil {
+		t.Fatalf("LoadConfig returned error: %v", err)
+	}
+	if cfg.User.Admin.Password != "env-admin-password" {
+		t.Fatalf("expected admin password from env, got %q", cfg.User.Admin.Password)
+	}
+	if _, err := os.Stat(examplePath); !os.IsNotExist(err) {
+		t.Fatalf("config.example.yaml should not be generated when env is present, stat err=%v", err)
+	}
+}
+
 func TestLoadConfigAppliesEnvOverrides(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.yaml")
@@ -112,6 +160,8 @@ app:
 server:
   addr: ":9000"
   mode: test
+user:
+  enabled: false
 `), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -171,6 +221,8 @@ jwt:
   secret: admin-env-secret
 user:
   enabled: true
+  admin:
+    password: admin-env-password
 `), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -289,6 +341,14 @@ func TestValidateConfigRejectsInvalidValues(t *testing.T) {
 			},
 		},
 		{
+			name: "admin password",
+			mutate: func(cfg *Config) {
+				cfg.User.Enabled = true
+				cfg.User.Admin.Init = true
+				cfg.User.Admin.Password = ""
+			},
+		},
+		{
 			name: "jwt secret",
 			mutate: func(cfg *Config) {
 				cfg.User.Enabled = true
@@ -312,6 +372,7 @@ func TestValidateConfigRejectsInvalidValues(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := DefaultConfig()
+			cfg.User.Admin.Password = "admin-password"
 			tc.mutate(&cfg)
 			if err := ValidateConfig(cfg); err == nil {
 				t.Fatal("expected validation error")

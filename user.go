@@ -149,10 +149,7 @@ func bootstrapUserSystem(cfg Config) (UserBootstrapResult, error) {
 		return result, err
 	}
 
-	password, err := generateAdminPassword()
-	if err != nil {
-		return result, err
-	}
+	password := cfg.User.Admin.Password
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return result, err
@@ -255,7 +252,7 @@ func normalizeUserPath(path string) string {
 func (a *App) handleLogin(c *gin.Context) {
 	var req loginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSON(c, http.StatusBadRequest, Fail(http.StatusBadRequest, "invalid login request", err.Error()))
+		HandleError(c, fmt.Errorf("%w: %v", ErrBadRequest, err))
 		return
 	}
 
@@ -269,15 +266,15 @@ func (a *App) handleLogin(c *gin.Context) {
 	var user UserAccount
 	err = db.Where("username = ?", req.Username).First(&user).Error
 	if err != nil {
-		JSON(c, http.StatusUnauthorized, Fail(http.StatusUnauthorized, "invalid username or password", ErrCodeInvalidCredentials))
+		writeDecisionDenied(c, Deny(ErrCodeInvalidCredentials, "invalid username or password"))
 		return
 	}
 	if !user.Enabled {
-		JSON(c, http.StatusUnauthorized, Fail(http.StatusUnauthorized, "account disabled", ErrCodeAccountDisabled))
+		writeDecisionDenied(c, Deny(ErrCodeAccountDisabled, "account disabled"))
 		return
 	}
 	if bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)) != nil {
-		JSON(c, http.StatusUnauthorized, Fail(http.StatusUnauthorized, "invalid username or password", ErrCodeInvalidCredentials))
+		writeDecisionDenied(c, Deny(ErrCodeInvalidCredentials, "invalid username or password"))
 		return
 	}
 
@@ -292,24 +289,22 @@ func (a *App) handleLogin(c *gin.Context) {
 func (a *App) handleRefreshToken(c *gin.Context) {
 	var req refreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSON(c, http.StatusBadRequest, Fail(http.StatusBadRequest, "invalid refresh request", err.Error()))
+		HandleError(c, fmt.Errorf("%w: %v", ErrBadRequest, err))
 		return
 	}
 
 	claims, err := parseAuthToken(a.config, req.RefreshToken, "refresh")
 	if err != nil {
 		code := ErrCodeInvalidRefreshToken
-		message := "invalid refresh token"
 		if authTokenErrorCode(err) == ErrCodeTokenExpired {
 			code = ErrCodeRefreshTokenExpired
-			message = "refresh token expired"
 		}
-		JSON(c, http.StatusUnauthorized, Fail(http.StatusUnauthorized, message, code))
+		writeDecisionDenied(c, Deny(code, "invalid refresh token"))
 		return
 	}
 	userID, err := strconv.ParseUint(claims.Subject, 10, 64)
 	if err != nil {
-		JSON(c, http.StatusUnauthorized, Fail(http.StatusUnauthorized, "invalid refresh token", ErrCodeInvalidRefreshToken))
+		writeDecisionDenied(c, Deny(ErrCodeInvalidRefreshToken, "invalid refresh token"))
 		return
 	}
 
@@ -322,15 +317,15 @@ func (a *App) handleRefreshToken(c *gin.Context) {
 
 	var user UserAccount
 	if err := db.First(&user, uint(userID)).Error; err != nil {
-		JSON(c, http.StatusUnauthorized, Fail(http.StatusUnauthorized, "invalid refresh token", ErrCodeInvalidRefreshToken))
+		writeDecisionDenied(c, Deny(ErrCodeInvalidRefreshToken, "invalid refresh token"))
 		return
 	}
 	if user.RefreshTokenHash == "" || user.RefreshTokenHash != hashToken(req.RefreshToken) {
-		JSON(c, http.StatusUnauthorized, Fail(http.StatusUnauthorized, "invalid refresh token", ErrCodeInvalidRefreshToken))
+		writeDecisionDenied(c, Deny(ErrCodeInvalidRefreshToken, "invalid refresh token"))
 		return
 	}
 	if user.RefreshTokenExpiresAt == nil || time.Now().After(*user.RefreshTokenExpiresAt) {
-		JSON(c, http.StatusUnauthorized, Fail(http.StatusUnauthorized, "refresh token expired", ErrCodeRefreshTokenExpired))
+		writeDecisionDenied(c, Deny(ErrCodeRefreshTokenExpired, "refresh token expired"))
 		return
 	}
 

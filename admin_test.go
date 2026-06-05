@@ -19,6 +19,7 @@ func TestAdminEnabledCreatesAdminAccount(t *testing.T) {
 	cfg.Server.Mode = "test"
 	cfg.User.Enabled = true
 	cfg.User.Admin.Init = true
+	cfg.User.Admin.Password = "admin-test-password"
 	cfg.Database.Driver = "sqlite"
 	cfg.Database.DSN = filepath.Join(dir, "app.db")
 
@@ -33,8 +34,8 @@ func TestAdminEnabledCreatesAdminAccount(t *testing.T) {
 	if result.Username != "admin" {
 		t.Fatalf("expected admin username, got %q", result.Username)
 	}
-	if result.Password == "" {
-		t.Fatal("expected generated plaintext password")
+	if result.Password != cfg.User.Admin.Password {
+		t.Fatal("expected configured admin password")
 	}
 
 	db, err := gorm.Open(sqlite.Open(cfg.Database.DSN), userGormConfig())
@@ -51,7 +52,7 @@ func TestAdminEnabledCreatesAdminAccount(t *testing.T) {
 		t.Fatal("password should be stored as a hash")
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(account.PasswordHash), []byte(result.Password)); err != nil {
-		t.Fatalf("stored hash does not match generated password: %v", err)
+		t.Fatalf("stored hash does not match configured password: %v", err)
 	}
 	if !account.Admin {
 		t.Fatal("expected admin flag true")
@@ -64,6 +65,7 @@ func TestAdminEnabledIgnoresExistingAdminAccount(t *testing.T) {
 	cfg.Server.Mode = "test"
 	cfg.User.Enabled = true
 	cfg.User.Admin.Init = true
+	cfg.User.Admin.Password = "admin-test-password"
 	cfg.Database.Driver = "sqlite"
 	cfg.Database.DSN = filepath.Join(dir, "app.db")
 
@@ -94,6 +96,7 @@ func TestExistingAdminAccountGetsBuiltinAccess(t *testing.T) {
 	cfg.Server.Mode = "test"
 	cfg.User.Enabled = true
 	cfg.User.Admin.Init = true
+	cfg.User.Admin.Password = "admin-test-password"
 	cfg.Database.Driver = "sqlite"
 	cfg.Database.DSN = filepath.Join(dir, "app.db")
 
@@ -148,6 +151,7 @@ func TestUserLoginAndRefreshToken(t *testing.T) {
 	cfg.Server.Mode = "test"
 	cfg.User.Enabled = true
 	cfg.User.Admin.Init = true
+	cfg.User.Admin.Password = "admin-test-password"
 	cfg.Database.Driver = "sqlite"
 	cfg.Database.DSN = filepath.Join(dir, "app.db")
 

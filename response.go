@@ -10,8 +10,7 @@ import (
 type Response struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
-	Data    any    `json:"data,omitempty"`
-	Error   any    `json:"error,omitempty"`
+	Data    any    `json:"data"`
 }
 
 // OK 创建成功响应，业务错误码为 0。
@@ -42,11 +41,11 @@ func NoContent() Response {
 }
 
 // Fail 创建失败响应。
-func Fail(code int, message string, err any) Response {
+func Fail(code int, message string, _ ...any) Response {
 	return Response{
 		Code:    code,
 		Message: message,
-		Error:   err,
+		Data:    H{},
 	}
 }
 

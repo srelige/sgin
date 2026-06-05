@@ -106,7 +106,7 @@ func normalizeAdminPath(path string) string {
 func (a *App) serveAdminUI(c *gin.Context) {
 	data, err := adminUIFS.ReadFile("ui/admin.html")
 	if err != nil {
-		JSON(c, http.StatusInternalServerError, Fail(http.StatusInternalServerError, "admin UI file not found", err.Error()))
+		HandleError(c, err)
 		return
 	}
 	c.Data(http.StatusOK, "text/html; charset=utf-8", data)
@@ -348,7 +348,7 @@ func (a *App) adminCreate(c *gin.Context, value any) {
 func adminUintParam(c *gin.Context, name string) (uint, bool) {
 	parsed, err := strconv.ParseUint(c.Param(name), 10, 64)
 	if err != nil {
-		HandleError(c, err)
+		HandleError(c, fmt.Errorf("%w: invalid %s", ErrBadRequest, name))
 		return 0, false
 	}
 	return uint(parsed), true

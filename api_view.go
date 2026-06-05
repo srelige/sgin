@@ -55,6 +55,7 @@ func (v *APIView[T, ID]) Register(r gin.IRouter) {
 	handler := v.Handler
 	action := apiViewAction(method, path)
 	if handler == nil {
+		validateSerializer(v.Serializer, action)
 		handler = v.defaultHandler(method, path)
 	}
 	v.markAnonymousRoute(method, path, action)

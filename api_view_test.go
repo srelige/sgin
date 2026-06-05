@@ -20,8 +20,9 @@ func TestAPIViewGetListUsesDefaultRepository(t *testing.T) {
 	seedAPIViewCars(t, app)
 
 	app.Register(&APIView[apiViewCar, uint]{
-		Method: "get",
-		Path:   "/cars/",
+		Method:     "get",
+		Path:       "/cars/",
+		Serializer: FullModelSerializer[apiViewCar]{},
 	})
 
 	w := performAPIViewRequest(app, http.MethodGet, "/cars", "", "")
@@ -38,8 +39,9 @@ func TestAPIViewGetRetrieveUsesDefaultRepository(t *testing.T) {
 	seedAPIViewCars(t, app)
 
 	app.Register(&APIView[apiViewCar, uint]{
-		Method: "get",
-		Path:   "/cars/:id",
+		Method:     "get",
+		Path:       "/cars/:id",
+		Serializer: FullModelSerializer[apiViewCar]{},
 	})
 
 	w := performAPIViewRequest(app, http.MethodGet, "/cars/1", "", "")
@@ -93,8 +95,9 @@ func TestAPIViewRejectsInvalidDefaultPath(t *testing.T) {
 	}()
 
 	app.Register(&APIView[apiViewCar, uint]{
-		Method: "delete",
-		Path:   "/cars",
+		Method:     "delete",
+		Path:       "/cars",
+		Serializer: FullModelSerializer[apiViewCar]{},
 	})
 }
 

@@ -2,6 +2,7 @@ package sgin
 
 import (
 	"errors"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -23,7 +24,8 @@ func HandleError(c *gin.Context, err error) {
 		return
 	}
 	status := statusFromError(err)
-	JSON(c, status, Fail(status, http.StatusText(status), err.Error()))
+	log.Printf("sgin: request error status=%d method=%s path=%s err=%v", status, c.Request.Method, c.Request.URL.Path, err)
+	JSON(c, status, Fail(status, localizedStatusMessage(c, status)))
 }
 
 // statusFromError 根据错误类型选择 HTTP 状态码。
@@ -48,11 +50,7 @@ func writeDecisionDenied(c *gin.Context, decision Decision) {
 	if isAuthenticationErrorCode(decision.Code) {
 		status = http.StatusUnauthorized
 	}
-	message := decision.Message
-	if message == "" {
-		message = http.StatusText(status)
-	}
-	JSON(c, status, Fail(status, message, decision.Code))
+	JSON(c, status, Fail(status, localizedStatusMessage(c, status)))
 }
 
 func isAuthenticationErrorCode(code string) bool {
@@ -63,6 +61,9 @@ func isAuthenticationErrorCode(code string) bool {
 		ErrCodeTokenExpired,
 		ErrCodeInvalidTokenType,
 		ErrCodeAccountDisabled,
+		ErrCodeInvalidCredentials,
+		ErrCodeInvalidRefreshToken,
+		ErrCodeRefreshTokenExpired,
 		"unauthorized",
 		"not_authenticated":
 		return true

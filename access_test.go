@@ -20,6 +20,7 @@ func TestAdminBootstrapCreatesAdminAccess(t *testing.T) {
 	cfg.User.Enabled = true
 	cfg.User.Admin.Init = true
 	cfg.User.Admin.Username = "admin"
+	cfg.User.Admin.Password = "admin-access-password"
 	cfg.JWT.Secret = "admin-access-secret"
 
 	app, err := NewE(WithConfig(cfg))
@@ -95,7 +96,7 @@ func TestDisabledUserLoginReturnsDisabledBeforePassword(t *testing.T) {
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected disabled login to be unauthorized, got %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "account_disabled") {
+	if !strings.Contains(w.Body.String(), "Unauthorized") {
 		t.Fatalf("expected disabled login response, got %s", w.Body.String())
 	}
 }
@@ -138,8 +139,9 @@ func TestModelViewSetExtraActionUsesRoutePermissionPath(t *testing.T) {
 	}
 
 	app.Register(&ModelViewSet[authViewSetBook, uint]{
-		BasePath: "/assets",
-		Auth:     []string{"all"},
+		BasePath:   "/assets",
+		Serializer: FullModelSerializer[authViewSetBook]{},
+		Auth:       []string{"all"},
 		Middlewares: []gin.HandlerFunc{
 			app.LoadAccess(),
 			app.RequireRoutePermission(),
@@ -201,19 +203,18 @@ func TestAccessMiddlewaresDenyMissingGroupRoleAndPermission(t *testing.T) {
 
 	cases := []struct {
 		path string
-		code string
 	}{
-		{path: "/cmdb-group-denied", code: ErrCodeGroupRequired},
-		{path: "/cmdb-role-denied", code: ErrCodeRoleRequired},
-		{path: "/cmdb-route-missing", code: ErrCodeRoutePermissionNotConfigured},
-		{path: "/cmdb-route-denied", code: ErrCodeRoutePermissionRequired},
+		{path: "/cmdb-group-denied"},
+		{path: "/cmdb-role-denied"},
+		{path: "/cmdb-route-missing"},
+		{path: "/cmdb-route-denied"},
 	}
 	for _, tc := range cases {
 		w := accessRequest(app, tc.path, token)
 		if w.Code != http.StatusForbidden {
 			t.Fatalf("expected %s to be forbidden, got %d", tc.path, w.Code)
 		}
-		assertResponseError(t, w, tc.code)
+		assertResponseMessage(t, w, "Forbidden")
 	}
 }
 

@@ -8,6 +8,10 @@ func exampleConfigYAML() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	adminPassword, err := generateAdminPassword()
+	if err != nil {
+		return "", err
+	}
 	return fmt.Sprintf(`app:
   name: sgin-app
   env: development
@@ -48,10 +52,11 @@ user:
   admin:
     init: true
     username: admin
+    password: "%s"
 
 jwt:
   secret: "%s"
   expired: 1
   refresh_expired: 168
-`, secret), nil
+`, adminPassword, secret), nil
 }
