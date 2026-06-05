@@ -5,7 +5,7 @@
 ## 当前功能
 
 - 兼容 sgin 原生路由：`App` 嵌入 `*gin.Engine`，可直接使用 `GET`、`POST`、`Use`、`Group` 等方法。
-- 配置加载：默认读取 `config.yaml`；不存在时读取 `config.example.yaml`；两者都不存在时生成 `config.example.yaml` 并按它启动。
+- 配置加载：默认读取 `config.yaml`；不存在时读取 `config.example.yaml`；两者都不存在但存在 `SGIN_*` 环境变量时使用默认配置加环境变量覆盖，不生成示例文件；本地配置和环境变量都没有时才生成 `config.example.yaml` 并按它启动。
 - 配置优先级：代码显式配置 > 环境变量 > `config.yaml` > `config.example.yaml` > 默认配置。
 - 目录初始化：`app.InitDir()` 可创建推荐业务目录结构。
 - 统一响应：业务接口可以用框架 helper 返回一致的 `code/message/data/error` JSON 结构，避免每个 handler 自己拼响应格式。
@@ -55,8 +55,8 @@ func main() {
 }
 ```
 
-第一次启动且当前目录没有 `config.yaml` 和 `config.example.yaml` 时，框架会自动生成 `config.example.yaml`，但不会生成 `config.yaml`。
-之后如果仍没有 `config.yaml`，框架会继续读取 `config.example.yaml`，所以其中的 `jwt.secret` 会保持稳定。
+第一次启动且当前目录没有 `config.yaml` 和 `config.example.yaml` 时，如果没有任何框架识别的 `SGIN_*` 环境变量，框架会自动生成 `config.example.yaml`，但不会生成 `config.yaml`。
+之后如果仍没有 `config.yaml`，框架会继续读取 `config.example.yaml`，所以其中的 `jwt.secret` 会保持稳定。纯环境变量部署时，不会生成 `config.example.yaml`，运行配置来自默认值加环境变量覆盖。
 
 可选初始化业务目录：
 
@@ -117,6 +117,9 @@ redis:
   password: ""
   db: 0
 
+auth:
+  required: true
+
 rest:
   pagination: false
   default_page: 1
@@ -155,6 +158,7 @@ SGIN_REDIS_ENABLED
 SGIN_REDIS_ADDR
 SGIN_ADMIN_ENABLED
 SGIN_ADMIN_PATH
+SGIN_AUTH_REQUIRED
 SGIN_REST_PAGINATION
 SGIN_REST_DEFAULT_PAGE
 SGIN_REST_DEFAULT_PAGE_SIZE
@@ -199,7 +203,9 @@ POST /login/refresh
 
 登录成功返回 `access_token` 和 `refresh_token`。`jwt.expired` 是 access token 有效期，单位小时；`jwt.refresh_expired` 是 refresh token 有效期，单位小时。refresh token 只在数据库保存 SHA-256 摘要，刷新时会轮换。用户表包含 `enabled` 字段；账号被禁用时会在密码校验前拒绝登录。
 
-框架不提供全局隐式认证配置；哪个接口需要 token，就在该路由上显式挂认证中间件。保护接口可使用：
+`auth.required` 控制框架默认认证行为，默认值是 `true`。默认开启时，`ModelViewSet`、`ReadOnlyModelViewSet`、`APIView` 和后续注册的普通 Gin 路由默认都需要携带 access token；登录接口和 refresh 接口永远公开，不受该配置影响。某个 ViewSet/APIView 接口需要公开时，在注册处使用 `AllowAnonymous` 显式声明；普通 Gin 路由可以用 `app.AllowAnonymous(method, path)` 显式放行。
+
+如果把 `auth.required` 改为 `false`，接口默认公开；仍需要登录的 ViewSet/APIView 接口可以继续使用 `Auth` 显式声明，普通 Gin 路由可以继续手动挂 `app.JWTAuth()`。保护接口可使用：
 
 ```go
 app.GET("/me", app.JWTAuth(), func(c *sgin.Context) {
@@ -801,7 +807,7 @@ route -> permission
 
 ### 基础认证
 
-`Auth` 只负责 token 校验。访问受保护接口时，请求头需要携带登录返回的 access token：
+框架层认证只负责 token 校验，不判断登录后的用户是否有业务访问资格。访问受保护接口时，请求头需要携带登录返回的 access token：
 
 ```txt
 Authorization: Bearer <access_token>
@@ -814,11 +820,24 @@ app.Register(&sgin.ModelViewSet[Book, uint]{
 })
 ```
 
+默认配置下 `auth.required=true`，通过 `App.Register` 注册的 `ModelViewSet`、`ReadOnlyModelViewSet` 和 `APIView` 默认受保护；后续直接注册到 `app` 的普通 Gin 路由也会受默认认证保护。需要公开的接口必须显式声明：
+
+```go
+app.Register(&sgin.ModelViewSet[Book, uint]{
+	BasePath:       "/books",
+	AllowAnonymous: []string{sgin.ActionList},
+})
+
+app.AllowAnonymous("GET", "/health")
+```
+
+如果配置为 `auth.required=false`，接口默认公开；需要单独保护某个 ViewSet/APIView 接口时继续使用 `Auth`。`Auth` 和 `AllowAnonymous` 支持 `all`、HTTP method，以及 `list`、`retrieve`、`create`、`update`、`partial_update`、`destroy` 这些 CRUD action。`ExtraAction` 是单接口，可使用 `RequireAuth` 或 `AllowAnonymous` 覆盖默认值。
+
 ### 自定义认证 middleware
 
 sgin 不提供 AuthRegistry，也不复制 DRF 的 authentication classes。框架底层是 Gin，自定义认证应直接写 Gin middleware：API Key、内部服务 token、自定义 Bearer token、签名认证、租户认证都可以按普通 middleware 组合。
 
-内置 `Auth` 字段只表示是否使用 sgin 用户系统的 `JWTAuth()`。如果接口使用 API Key 或其他认证方式，不需要设置 `Auth`，直接把认证 middleware 放进 `Middlewares` 或普通 Gin 路由链。
+内置 `Auth` 字段只表示是否使用 sgin 用户系统的 `JWTAuth()`。如果接口使用 API Key 或其他认证方式，通常不设置 `Auth`，而是把认证 middleware 放进 `Middlewares` 或普通 Gin 路由链；当 `auth.required=true` 时，这类接口还需要通过 `AllowAnonymous` 或 `app.AllowAnonymous` 跳过默认 JWT 认证，避免两套认证同时生效。
 
 API Key 示例：
 
@@ -835,8 +854,9 @@ func APIKeyAuth(expected string) gin.HandlerFunc {
 }
 
 app.Register(&sgin.APIView[models.CMDBAsset, uint]{
-	Method: "get",
-	Path:   "/cmdb",
+	Method:         "get",
+	Path:           "/cmdb",
+	AllowAnonymous: []string{"all"},
 	Middlewares: []gin.HandlerFunc{
 		APIKeyAuth("dev-secret"),
 	},
@@ -861,6 +881,7 @@ func InternalTokenAuth(secret string) gin.HandlerFunc {
 app.POST("/jobs/rebuild-index", InternalTokenAuth("internal-secret"), func(c *gin.Context) {
 	c.JSON(http.StatusAccepted, gin.H{"status": "accepted"})
 })
+app.AllowAnonymous("POST", "/jobs/rebuild-index")
 ```
 
 如果自定义认证希望继续复用 `LoadAccess()`、`RequireAnyGroup()`、`RequireAnyRole()` 或 `RequireRoutePermission()`，认证成功后需要写入 sgin 能识别的 `user`。最简单做法是查到内置 `UserAccount` 后写入 Gin Context：
@@ -895,8 +916,9 @@ func CustomBearerAuth(app *sgin.App) gin.HandlerFunc {
 }
 
 app.Register(&sgin.APIView[models.CMDBAsset, uint]{
-	Method: "get",
-	Path:   "/cmdb",
+	Method:         "get",
+	Path:           "/cmdb",
+	AllowAnonymous: []string{"all"},
 	Middlewares: []gin.HandlerFunc{
 		CustomBearerAuth(app),
 		app.LoadAccess(),

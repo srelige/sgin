@@ -107,6 +107,7 @@ func newAPIViewTestApp(t *testing.T) *App {
 	cfg.Database.DSN = filepath.Join(t.TempDir(), "api-view.db")
 	cfg.Database.AutoMigrate = true
 	cfg.User.Enabled = false
+	cfg.Auth.Required = false
 	cfg.JWT.Secret = "api-view-secret"
 
 	app, err := NewE(WithConfig(cfg))

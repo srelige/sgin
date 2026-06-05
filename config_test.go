@@ -27,6 +27,9 @@ func TestLoadConfigGeneratesExampleAndUsesDefaults(t *testing.T) {
 	if cfg.JWT.Secret == "" {
 		t.Fatal("expected generated jwt secret")
 	}
+	if !cfg.Auth.Required {
+		t.Fatal("expected auth.required to default to true")
+	}
 	if _, err := os.Stat(examplePath); err != nil {
 		t.Fatalf("expected generated example config: %v", err)
 	}
@@ -70,6 +73,36 @@ user:
 	}
 }
 
+func TestLoadConfigUsesEnvWithoutGeneratingExample(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	examplePath := filepath.Join(dir, "config.example.yaml")
+	t.Setenv("SGIN_APP_NAME", "from-env-only")
+	t.Setenv("SGIN_AUTH_REQUIRED", "false")
+
+	cfg, err := LoadConfig(LoadOptions{
+		ConfigFile:          configPath,
+		ExampleConfigFile:   examplePath,
+		AutoGenerateExample: true,
+		UseEnv:              true,
+	})
+	if err != nil {
+		t.Fatalf("LoadConfig returned error: %v", err)
+	}
+	if cfg.App.Name != "from-env-only" {
+		t.Fatalf("expected env app name, got %q", cfg.App.Name)
+	}
+	if cfg.Auth.Required {
+		t.Fatal("expected env auth override")
+	}
+	if _, err := os.Stat(examplePath); !os.IsNotExist(err) {
+		t.Fatalf("config.example.yaml should not be generated when env is present, stat err=%v", err)
+	}
+	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+		t.Fatalf("config.yaml should not be generated, stat err=%v", err)
+	}
+}
+
 func TestLoadConfigAppliesEnvOverrides(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.yaml")
@@ -89,6 +122,7 @@ server:
 	t.Setenv("SGIN_REST_DEFAULT_PAGE_SIZE", "30")
 	t.Setenv("SGIN_REST_MAX_PAGE_SIZE", "60")
 	t.Setenv("SGIN_REST_STATIC_DIR", "/tmp/sgin-uploads")
+	t.Setenv("SGIN_AUTH_REQUIRED", "false")
 
 	cfg, err := LoadConfig(LoadOptions{
 		ConfigFile: configPath,
@@ -105,6 +139,9 @@ server:
 	}
 	if !cfg.REST.Pagination || cfg.REST.DefaultPage != 2 || cfg.REST.DefaultPageSize != 30 || cfg.REST.MaxPageSize != 60 || cfg.REST.StaticDir != "/tmp/sgin-uploads" {
 		t.Fatalf("expected rest env overrides, got %+v", cfg.REST)
+	}
+	if cfg.Auth.Required {
+		t.Fatal("expected auth.required env override")
 	}
 }
 

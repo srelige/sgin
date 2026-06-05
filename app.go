@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 
 	"github.com/gin-gonic/gin"
@@ -26,6 +27,10 @@ type App struct {
 
 	// userBootstrap 保存启动时内置用户系统初始化结果。
 	userBootstrap UserBootstrapResult
+
+	anonymousMu     sync.RWMutex
+	anonymousRoutes map[string]struct{}
+	defaultAuth     bool
 
 	// db 是按 database 配置延迟打开的默认 GORM 连接，供默认 ModelViewSet 使用。
 	dbMu sync.Mutex
@@ -100,13 +105,18 @@ func NewE(opts ...Option) (*App, error) {
 	}
 
 	app := &App{
-		Engine:        gin.Default(),
-		config:        cfg,
-		permissions:   NewPermissionRegistry(),
-		userBootstrap: userBootstrap,
+		Engine:          gin.Default(),
+		config:          cfg,
+		permissions:     NewPermissionRegistry(),
+		userBootstrap:   userBootstrap,
+		anonymousRoutes: map[string]struct{}{},
 	}
 	registerUserRoutes(app)
 	registerAdminRoutes(app)
+	if cfg.Auth.Required {
+		app.defaultAuth = true
+		app.Use(app.defaultAuthMiddleware())
+	}
 	return app, nil
 }
 
@@ -172,6 +182,13 @@ func (a *App) Run(addr ...string) error {
 // 返回副本可以避免调用方误改 App 内部配置；需要修改时应调用 SetConfig。
 func (a *App) Config() Config {
 	return a.config
+}
+
+func (a *App) AllowAnonymous(method string, path string) {
+	if a == nil {
+		return
+	}
+	a.markAnonymousRoute(method, path)
 }
 
 // SetConfig 替换 App 当前配置。
@@ -308,4 +325,54 @@ func setGinMode(mode string) error {
 // appAwareViewSet 是框架内部接口，用来把 App 注入到 ViewSet。
 type appAwareViewSet interface {
 	setApp(*App)
+}
+
+func (a *App) defaultAuthMiddleware() gin.HandlerFunc {
+	auth := a.JWTAuth()
+	return func(c *gin.Context) {
+		if !a.config.Auth.Required || a.isAnonymousRoute(c) {
+			c.Next()
+			return
+		}
+		auth(c)
+	}
+}
+
+func (a *App) usesDefaultAuthMiddleware() bool {
+	return a != nil && a.defaultAuth && a.config.Auth.Required
+}
+
+func (a *App) markAnonymousRoute(method string, path string) {
+	method = strings.ToUpper(strings.TrimSpace(method))
+	path = normalizeBasePath(path)
+	if method == "" || path == "" {
+		return
+	}
+	a.anonymousMu.Lock()
+	defer a.anonymousMu.Unlock()
+	if a.anonymousRoutes == nil {
+		a.anonymousRoutes = map[string]struct{}{}
+	}
+	a.anonymousRoutes[routeAuthKey(method, path)] = struct{}{}
+}
+
+func (a *App) isAnonymousRoute(c *gin.Context) bool {
+	if a == nil || c == nil {
+		return false
+	}
+	method := strings.ToUpper(c.Request.Method)
+	paths := []string{c.FullPath(), c.Request.URL.Path}
+	a.anonymousMu.RLock()
+	defer a.anonymousMu.RUnlock()
+	for _, path := range paths {
+		path = normalizeBasePath(path)
+		if _, ok := a.anonymousRoutes[routeAuthKey(method, path)]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func routeAuthKey(method string, path string) string {
+	return strings.ToUpper(strings.TrimSpace(method)) + " " + normalizeBasePath(path)
 }

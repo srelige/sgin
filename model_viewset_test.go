@@ -166,6 +166,7 @@ func TestModelViewSetCanUseDefaultGORMRepository(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Server.Mode = "test"
 	cfg.User.Enabled = false
+	cfg.Auth.Required = false
 	cfg.Database.Driver = "sqlite"
 	cfg.Database.DSN = filepath.Join(t.TempDir(), "app.db")
 	cfg.Database.AutoMigrate = true
@@ -280,6 +281,7 @@ func TestModelViewSetGORMRepositoryCombinesFiltersAndPagination(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Server.Mode = "test"
 	cfg.User.Enabled = false
+	cfg.Auth.Required = false
 	cfg.Database.Driver = "sqlite"
 	cfg.Database.DSN = filepath.Join(t.TempDir(), "filter-books.db")
 	cfg.Database.AutoMigrate = true
@@ -380,6 +382,7 @@ func TestModelViewSetUsesDefaultPageConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Server.Mode = "test"
 	cfg.User.Enabled = false
+	cfg.Auth.Required = false
 	cfg.REST.Pagination = true
 	cfg.REST.DefaultPage = 3
 	cfg.REST.DefaultPageSize = 2
@@ -442,6 +445,7 @@ func TestModelViewSetCanDisablePaginationWhenGlobalEnabled(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Server.Mode = "test"
 	cfg.User.Enabled = false
+	cfg.Auth.Required = false
 	cfg.REST.Pagination = true
 
 	app, err := NewE(WithConfig(cfg))
@@ -549,6 +553,7 @@ func newTestApp(t *testing.T) *App {
 	cfg := DefaultConfig()
 	cfg.Server.Mode = "test"
 	cfg.User.Enabled = false
+	cfg.Auth.Required = false
 	app, err := NewE(WithConfig(cfg))
 	if err != nil {
 		t.Fatalf("NewE: %v", err)

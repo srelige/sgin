@@ -33,7 +33,8 @@ func LoadConfig(opts LoadOptions) (Config, error) {
 			}
 			data, err = os.ReadFile(opts.ExampleConfigFile)
 			if err != nil {
-				if errors.Is(err, os.ErrNotExist) && opts.AutoGenerateExample {
+				envOnly := opts.UseEnv && hasEnvOverrides()
+				if errors.Is(err, os.ErrNotExist) && opts.AutoGenerateExample && !envOnly {
 					if writeErr := WriteExampleConfig(opts.ExampleConfigFile); writeErr != nil {
 						return cfg, writeErr
 					}
@@ -64,6 +65,15 @@ func LoadConfig(opts LoadOptions) (Config, error) {
 		return cfg, err
 	}
 	return cfg, nil
+}
+
+func hasEnvOverrides() bool {
+	for _, key := range sginEnvKeys {
+		if _, ok := os.LookupEnv(key); ok {
+			return true
+		}
+	}
+	return false
 }
 
 func decodeConfig(data []byte, cfg *Config, strict bool) error {
@@ -111,6 +121,7 @@ func ApplyEnvOverrides(cfg *Config) {
 	setStringEnv("SGIN_REDIS_ADDR", &cfg.Redis.Addr)
 	setBoolEnv("SGIN_ADMIN_ENABLED", &cfg.Admin.Enabled)
 	setStringEnv("SGIN_ADMIN_PATH", &cfg.Admin.Path)
+	setBoolEnv("SGIN_AUTH_REQUIRED", &cfg.Auth.Required)
 	setBoolEnv("SGIN_REST_PAGINATION", &cfg.REST.Pagination)
 	setIntEnv("SGIN_REST_DEFAULT_PAGE", &cfg.REST.DefaultPage)
 	setIntEnv("SGIN_REST_DEFAULT_PAGE_SIZE", &cfg.REST.DefaultPageSize)
@@ -123,6 +134,33 @@ func ApplyEnvOverrides(cfg *Config) {
 	setStringEnv("SGIN_JWT_SECRET", &cfg.JWT.Secret)
 	setIntEnv("SGIN_JWT_EXPIRED", &cfg.JWT.Expired)
 	setIntEnv("SGIN_JWT_REFRESH_EXPIRED", &cfg.JWT.RefreshExpired)
+}
+
+var sginEnvKeys = []string{
+	"SGIN_APP_NAME",
+	"SGIN_APP_ENV",
+	"SGIN_APP_DEBUG",
+	"SGIN_SERVER_ADDR",
+	"SGIN_SERVER_MODE",
+	"SGIN_DATABASE_DRIVER",
+	"SGIN_DATABASE_DSN",
+	"SGIN_REDIS_ENABLED",
+	"SGIN_REDIS_ADDR",
+	"SGIN_ADMIN_ENABLED",
+	"SGIN_ADMIN_PATH",
+	"SGIN_AUTH_REQUIRED",
+	"SGIN_REST_PAGINATION",
+	"SGIN_REST_DEFAULT_PAGE",
+	"SGIN_REST_DEFAULT_PAGE_SIZE",
+	"SGIN_REST_MAX_PAGE_SIZE",
+	"SGIN_REST_STATIC_DIR",
+	"SGIN_USER_ENABLED",
+	"SGIN_USER_PATH",
+	"SGIN_USER_ADMIN_INIT",
+	"SGIN_USER_ADMIN_USERNAME",
+	"SGIN_JWT_SECRET",
+	"SGIN_JWT_EXPIRED",
+	"SGIN_JWT_REFRESH_EXPIRED",
 }
 
 // setStringEnv 在环境变量存在时写入字符串配置。

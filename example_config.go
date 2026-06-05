@@ -28,6 +28,9 @@ redis:
   password: ""
   db: 0
 
+auth:
+  required: true
+
 rest:
   pagination: false
   default_page: 1

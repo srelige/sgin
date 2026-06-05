@@ -10,9 +10,10 @@ import (
 type ReadOnlyModelViewSet[T any, ID comparable] struct {
 	BasePath string
 
-	Repository Repository[T, ID]
-	Serializer Serializer[T]
-	Auth       []string
+	Repository     Repository[T, ID]
+	Serializer     Serializer[T]
+	Auth           []string
+	AllowAnonymous []string
 
 	Middlewares       []gin.HandlerFunc
 	ActionMiddlewares map[string][]gin.HandlerFunc
@@ -51,8 +52,11 @@ func (v *ReadOnlyModelViewSet[T, ID]) Register(r gin.IRouter) {
 	base := v.Path()
 	model := v.model()
 	model.validateRouteOptions()
-	r.GET(base, model.routeHandlers(http.MethodGet, model.List)...)
-	r.GET(joinIDPath(base), model.routeHandlers(http.MethodGet, model.Retrieve)...)
+	model.markAnonymousRoute(http.MethodGet, base, ActionList)
+	r.GET(base, model.routeHandlers(http.MethodGet, ActionList, model.List)...)
+	item := joinIDPath(base)
+	model.markAnonymousRoute(http.MethodGet, item, ActionRetrieve)
+	r.GET(item, model.routeHandlers(http.MethodGet, ActionRetrieve, model.Retrieve)...)
 }
 
 // List 处理只读列表请求。
@@ -72,6 +76,7 @@ func (v *ReadOnlyModelViewSet[T, ID]) model() *ModelViewSet[T, ID] {
 		Repository:        v.Repository,
 		Serializer:        v.Serializer,
 		Auth:              v.Auth,
+		AllowAnonymous:    v.AllowAnonymous,
 		Middlewares:       v.Middlewares,
 		ActionMiddlewares: v.ActionMiddlewares,
 		Handlers:          v.Handlers,

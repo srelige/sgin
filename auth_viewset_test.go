@@ -65,6 +65,89 @@ func TestModelViewSetAuthSelectedMethods(t *testing.T) {
 	}
 }
 
+func TestDefaultAuthRequiresTokenAndAllowsAnonymousAction(t *testing.T) {
+	app, token := newGlobalAuthTestApp(t)
+	app.Register(&ModelViewSet[authViewSetBook, uint]{
+		BasePath:       "/books",
+		AllowAnonymous: []string{ActionList},
+	})
+
+	w := performAuthRequest(app, http.MethodGet, "/books", "", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected anonymous list to be allowed, got %d", w.Code)
+	}
+
+	w = performAuthRequest(app, http.MethodPost, "/books", "", bytes.NewBufferString(`{"title":"go"}`))
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected default-protected create to be unauthorized, got %d", w.Code)
+	}
+	assertResponseError(t, w, ErrCodeAuthenticationRequired)
+
+	w = performAuthRequest(app, http.MethodPost, "/books", token, bytes.NewBufferString(`{"title":"go"}`))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected authenticated create to be allowed, got %d", w.Code)
+	}
+}
+
+func TestGlobalAuthCanBeDisabledAndActionCanRequireToken(t *testing.T) {
+	app, token := newAuthTestApp(t)
+	app.Register(&ModelViewSet[authViewSetBook, uint]{
+		BasePath: "/books",
+		Auth:     []string{ActionCreate},
+	})
+
+	w := performAuthRequest(app, http.MethodGet, "/books", "", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected default-public list to be allowed, got %d", w.Code)
+	}
+
+	w = performAuthRequest(app, http.MethodPost, "/books", "", bytes.NewBufferString(`{"title":"go"}`))
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected explicitly protected create to be unauthorized, got %d", w.Code)
+	}
+
+	w = performAuthRequest(app, http.MethodPost, "/books", token, bytes.NewBufferString(`{"title":"go"}`))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected authenticated create to be allowed, got %d", w.Code)
+	}
+}
+
+func TestDefaultAuthDoesNotProtectLoginRoute(t *testing.T) {
+	app, _ := newGlobalAuthTestApp(t)
+
+	w := performAuthRequest(app, http.MethodPost, "/login", "", bytes.NewBufferString(`{"username":"missing","password":"missing"}`))
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected login handler to return unauthorized credentials, got %d", w.Code)
+	}
+	assertResponseError(t, w, ErrCodeInvalidCredentials)
+}
+
+func TestAppAllowAnonymousBypassesDefaultAuthForNativeRoute(t *testing.T) {
+	app, token := newGlobalAuthTestApp(t)
+	app.GET("/ping", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+	app.GET("/health", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+	app.AllowAnonymous(http.MethodGet, "/health")
+
+	w := performAuthRequest(app, http.MethodGet, "/ping", "", nil)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected default-protected native route to be unauthorized, got %d", w.Code)
+	}
+
+	w = performAuthRequest(app, http.MethodGet, "/ping", token, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected authenticated native route to be allowed, got %d", w.Code)
+	}
+
+	w = performAuthRequest(app, http.MethodGet, "/health", "", nil)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected anonymous native route to be allowed, got %d", w.Code)
+	}
+}
+
 func TestJWTAuthStableErrorCodes(t *testing.T) {
 	app, token := newAuthTestApp(t)
 	app.GET("/protected", app.JWTAuth(), func(c *gin.Context) {
@@ -324,6 +407,14 @@ func TestModelViewSetRejectsCollectionExtraActionThatLooksLikeID(t *testing.T) {
 	})
 }
 func newAuthTestApp(t *testing.T) (*App, string) {
+	return newAuthTestAppWithDefaultAuth(t, false)
+}
+
+func newGlobalAuthTestApp(t *testing.T) (*App, string) {
+	return newAuthTestAppWithDefaultAuth(t, true)
+}
+
+func newAuthTestAppWithDefaultAuth(t *testing.T, required bool) (*App, string) {
 	t.Helper()
 
 	cfg := DefaultConfig()
@@ -333,6 +424,7 @@ func newAuthTestApp(t *testing.T) (*App, string) {
 	cfg.Database.AutoMigrate = true
 	cfg.User.Enabled = true
 	cfg.User.Admin.Init = false
+	cfg.Auth.Required = required
 	cfg.JWT.Secret = "auth-test-secret"
 
 	app, err := NewE(WithConfig(cfg))

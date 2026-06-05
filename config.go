@@ -13,6 +13,7 @@ type Config struct {
 	Server   ServerConfig   `yaml:"server" json:"server"`
 	Database DatabaseConfig `yaml:"database" json:"database"`
 	Redis    RedisConfig    `yaml:"redis" json:"redis"`
+	Auth     AuthConfig     `yaml:"auth" json:"auth"`
 	REST     RESTConfig     `yaml:"rest" json:"rest"`
 	User     UserConfig     `yaml:"user" json:"user"`
 	Admin    AdminConfig    `yaml:"admin" json:"admin"`
@@ -47,6 +48,10 @@ type RedisConfig struct {
 	Addr     string `yaml:"addr" json:"addr"`
 	Password string `yaml:"password" json:"password"`
 	DB       int    `yaml:"db" json:"db"`
+}
+
+type AuthConfig struct {
+	Required bool `yaml:"required" json:"required"`
 }
 
 // RESTConfig 描述 ViewSet/REST 层默认行为。
@@ -106,6 +111,9 @@ func DefaultConfig() Config {
 			Enabled: false,
 			Addr:    "127.0.0.1:6379",
 			DB:      0,
+		},
+		Auth: AuthConfig{
+			Required: true,
 		},
 		REST: RESTConfig{
 			Pagination:      false,

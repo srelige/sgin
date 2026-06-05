@@ -14,9 +14,10 @@ import (
 type ModelViewSet[T any, ID comparable] struct {
 	BasePath string
 
-	Repository Repository[T, ID]
-	Serializer Serializer[T]
-	Auth       []string
+	Repository     Repository[T, ID]
+	Serializer     Serializer[T]
+	Auth           []string
+	AllowAnonymous []string
 
 	Middlewares       []gin.HandlerFunc
 	ActionMiddlewares map[string][]gin.HandlerFunc
@@ -77,25 +78,37 @@ func (v *ModelViewSet[T, ID]) Register(r gin.IRouter) {
 
 	v.validateRouteOptions()
 	extraActions := v.prepareExtraActions(base)
+	for method, actions := range extraActions.dispatcher {
+		for _, action := range actions {
+			v.markAnonymousExtraAction(method, action)
+		}
+	}
 
-	r.GET(base, v.routeHandlers(http.MethodGet, v.List)...)
-	r.POST(base, v.routeHandlers(http.MethodPost, v.Create)...)
-	r.GET(item, v.routeHandlersWithCollectionDispatcher(http.MethodGet, v.Retrieve, extraActions.dispatcher["get"])...)
-	r.PUT(item, v.routeHandlersWithCollectionDispatcher(http.MethodPut, v.Update, extraActions.dispatcher["put"])...)
-	r.PATCH(item, v.routeHandlersWithCollectionDispatcher(http.MethodPatch, v.PartialUpdate, extraActions.dispatcher["patch"])...)
-	r.DELETE(item, v.routeHandlersWithCollectionDispatcher(http.MethodDelete, v.Destroy, extraActions.dispatcher["delete"])...)
+	v.markAnonymousRoute(http.MethodGet, base, ActionList)
+	r.GET(base, v.routeHandlers(http.MethodGet, ActionList, v.List)...)
+	v.markAnonymousRoute(http.MethodPost, base, ActionCreate)
+	r.POST(base, v.routeHandlers(http.MethodPost, ActionCreate, v.Create)...)
+	v.markAnonymousRoute(http.MethodGet, item, ActionRetrieve)
+	r.GET(item, v.routeHandlersWithCollectionDispatcher(http.MethodGet, ActionRetrieve, v.Retrieve, extraActions.dispatcher["get"])...)
+	v.markAnonymousRoute(http.MethodPut, item, ActionUpdate)
+	r.PUT(item, v.routeHandlersWithCollectionDispatcher(http.MethodPut, ActionUpdate, v.Update, extraActions.dispatcher["put"])...)
+	v.markAnonymousRoute(http.MethodPatch, item, ActionPartialUpdate)
+	r.PATCH(item, v.routeHandlersWithCollectionDispatcher(http.MethodPatch, ActionPartialUpdate, v.PartialUpdate, extraActions.dispatcher["patch"])...)
+	v.markAnonymousRoute(http.MethodDelete, item, ActionDestroy)
+	r.DELETE(item, v.routeHandlersWithCollectionDispatcher(http.MethodDelete, ActionDestroy, v.Destroy, extraActions.dispatcher["delete"])...)
 	for _, action := range extraActions.direct {
 		method := normalizeMethodKey(action.action.Method)
+		v.markAnonymousExtraAction(method, action)
 		r.Handle(strings.ToUpper(method), action.routePath, v.extraActionHandlers(method, action.action)...)
 	}
 }
 
-func (v *ModelViewSet[T, ID]) routeHandlers(method string, defaultHandler gin.HandlerFunc) []gin.HandlerFunc {
+func (v *ModelViewSet[T, ID]) routeHandlers(method string, action string, defaultHandler gin.HandlerFunc) []gin.HandlerFunc {
 	key := normalizeMethodKey(method)
 	finalHandler := v.resolveHandler(key, defaultHandler)
 
 	handlers := make([]gin.HandlerFunc, 0, 1+len(v.Middlewares)+len(v.resolveActionMiddlewares(key))+1)
-	if authRequired(v.Auth, key) {
+	if v.routeAuthRequired(key, action) {
 		if v.app == nil {
 			panic("sgin: ModelViewSet Auth requires App.Register")
 		}
@@ -108,9 +121,9 @@ func (v *ModelViewSet[T, ID]) routeHandlers(method string, defaultHandler gin.Ha
 }
 
 // routeHandlersWithCollectionDispatcher 让 GET/PUT/PATCH/DELETE 集合动作与 /resources/:id 共用入口。
-func (v *ModelViewSet[T, ID]) routeHandlersWithCollectionDispatcher(method string, defaultHandler gin.HandlerFunc, actions []registeredExtraAction) []gin.HandlerFunc {
+func (v *ModelViewSet[T, ID]) routeHandlersWithCollectionDispatcher(method string, action string, defaultHandler gin.HandlerFunc, actions []registeredExtraAction) []gin.HandlerFunc {
 	if len(actions) == 0 {
-		return v.routeHandlers(method, defaultHandler)
+		return v.routeHandlers(method, action, defaultHandler)
 	}
 
 	key := normalizeMethodKey(method)
@@ -122,13 +135,13 @@ func (v *ModelViewSet[T, ID]) routeHandlersWithCollectionDispatcher(method strin
 		capacity += len(action.action.Middlewares)
 	}
 	handlers := make([]gin.HandlerFunc, 0, capacity)
-	if authRequired(v.Auth, key) {
+	handlers = append(handlers, selectCollectionExtraAction(actions))
+	if v.dispatcherRouteAuthRequired(key, action, actions) {
 		if v.app == nil {
 			panic("sgin: ModelViewSet Auth requires App.Register")
 		}
-		handlers = append(handlers, v.app.JWTAuth())
+		handlers = append(handlers, v.dispatcherAuthHandler(key, action))
 	}
-	handlers = append(handlers, selectCollectionExtraAction(actions))
 	handlers = appendHandlers(handlers, v.Middlewares...)
 	for _, middleware := range actionMiddlewares {
 		handlers = append(handlers, onlyForDefaultAction(middleware))
@@ -144,7 +157,7 @@ func (v *ModelViewSet[T, ID]) routeHandlersWithCollectionDispatcher(method strin
 
 func (v *ModelViewSet[T, ID]) extraActionHandlers(method string, action ExtraAction) []gin.HandlerFunc {
 	handlers := make([]gin.HandlerFunc, 0, 1+len(v.Middlewares)+len(action.Middlewares)+1)
-	if authRequired(v.Auth, method) {
+	if v.extraActionAuthRequired(method, action) {
 		if v.app == nil {
 			panic("sgin: ModelViewSet Auth requires App.Register")
 		}
@@ -234,6 +247,7 @@ func (v *ModelViewSet[T, ID]) resolveActionMiddlewares(method string) []gin.Hand
 
 func (v *ModelViewSet[T, ID]) validateRouteOptions() {
 	validateAuthConfig(v.Auth)
+	validateAuthConfig(v.AllowAnonymous)
 	validateActionMiddlewareConfig(v.ActionMiddlewares)
 	validateHandlerConfig(v.Handlers)
 	validateExtraActions(v.ExtraActions)
@@ -289,16 +303,103 @@ func hasDetailRouteMethod(method string) bool {
 	}
 }
 
-func authRequired(auth []string, method string) bool {
+func (v *ModelViewSet[T, ID]) routeAuthRequired(method string, action string) bool {
+	if authRequired(v.Auth, method, action) {
+		return true
+	}
+	if authRequired(v.AllowAnonymous, method, action) {
+		return false
+	}
+	if v.app != nil && v.app.usesDefaultAuthMiddleware() {
+		return false
+	}
+	return v.config().Auth.Required
+}
+
+func (v *ModelViewSet[T, ID]) dispatcherRouteAuthRequired(method string, action string, actions []registeredExtraAction) bool {
+	if v.routeAuthRequired(method, action) {
+		return true
+	}
+	for _, item := range actions {
+		if v.extraActionAuthRequired(method, item.action) {
+			return true
+		}
+	}
+	return false
+}
+
+func (v *ModelViewSet[T, ID]) dispatcherAuthHandler(method string, action string) gin.HandlerFunc {
+	auth := v.app.JWTAuth()
+	return func(c *gin.Context) {
+		if selected, ok := selectedExtraAction(c); ok {
+			if v.extraActionAuthRequired(method, selected.action) {
+				auth(c)
+				return
+			}
+			c.Next()
+			return
+		}
+		if v.routeAuthRequired(method, action) {
+			auth(c)
+			return
+		}
+		c.Next()
+	}
+}
+
+func (v *ModelViewSet[T, ID]) extraActionAuthRequired(method string, action ExtraAction) bool {
+	if action.RequireAuth {
+		return true
+	}
+	if action.AllowAnonymous {
+		return false
+	}
+	return v.routeAuthRequired(method, "")
+}
+
+func (v *ModelViewSet[T, ID]) markAnonymousRoute(method string, path string, action string) {
+	if v.app == nil || !v.app.usesDefaultAuthMiddleware() {
+		return
+	}
+	if authRequired(v.Auth, method, action) {
+		return
+	}
+	if authRequired(v.AllowAnonymous, method, action) {
+		v.app.markAnonymousRoute(method, path)
+	}
+}
+
+func (v *ModelViewSet[T, ID]) markAnonymousExtraAction(method string, action registeredExtraAction) {
+	if v.app == nil || !v.app.usesDefaultAuthMiddleware() {
+		return
+	}
+	if action.action.RequireAuth {
+		return
+	}
+	if action.action.AllowAnonymous || (!authRequired(v.Auth, method, "") && authRequired(v.AllowAnonymous, method, "")) {
+		v.app.markAnonymousRoute(method, action.routePath)
+	}
+	if shouldDispatchCollectionExtraAction(method, action.action) {
+		if action.action.RequireAuth {
+			return
+		}
+		if action.action.AllowAnonymous {
+			v.app.markAnonymousRoute(method, joinPaths(v.Path(), action.path))
+		}
+	}
+}
+
+func authRequired(auth []string, method string, action string) bool {
 	if len(auth) == 0 {
 		return false
 	}
 
 	validateAuthConfig(auth)
 	method = normalizeMethodKey(method)
+	action = normalizeActionKey(action)
 	for _, item := range auth {
 		value := strings.ToLower(strings.TrimSpace(item))
-		if value == "all" || value == method {
+		if value == "all" || value == method || (action != "" && value == action) {
 			return true
 		}
 	}
@@ -313,9 +414,9 @@ func validateAuthConfig(auth []string) {
 			if len(auth) != 1 {
 				panic(`sgin: Auth "all" must be used alone`)
 			}
-		case isSupportedMethodKey(value):
+		case isSupportedMethodKey(value), isSupportedActionKey(value):
 		default:
-			panic(fmt.Sprintf("sgin: unsupported Auth method %q", item))
+			panic(fmt.Sprintf("sgin: unsupported Auth selector %q", item))
 		}
 	}
 }
@@ -341,6 +442,9 @@ func validateExtraActions(items []ExtraAction) {
 		if action.Handler == nil {
 			panic("sgin: ExtraAction Handler is required")
 		}
+		if action.RequireAuth && action.AllowAnonymous {
+			panic("sgin: ExtraAction cannot set both RequireAuth and AllowAnonymous")
+		}
 	}
 }
 
@@ -355,6 +459,26 @@ func normalizeMethodKey(method string) string {
 func isSupportedMethodKey(method string) bool {
 	switch method {
 	case "get", "post", "put", "patch", "delete":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeActionKey(action string) string {
+	key := strings.ToLower(strings.TrimSpace(action))
+	if key == "" {
+		return ""
+	}
+	if !isSupportedActionKey(key) {
+		panic(fmt.Sprintf("sgin: unsupported action %q", action))
+	}
+	return key
+}
+
+func isSupportedActionKey(action string) bool {
+	switch action {
+	case ActionList, ActionRetrieve, ActionCreate, ActionUpdate, ActionPartialUpdate, ActionDestroy:
 		return true
 	default:
 		return false

@@ -39,7 +39,9 @@ type ExtraAction struct {
 	// Path 是相对资源路径的动作路径。
 	Path string
 	// Detail 为 true 时动作挂到 /resources/:id/{path}，否则挂到 /resources/{path}。
-	Detail bool
+	Detail         bool
+	RequireAuth    bool
+	AllowAnonymous bool
 	// Middlewares 只作用于当前额外动作。
 	Middlewares []gin.HandlerFunc
 	// Handler 是当前额外动作最终执行的 Gin handler。

@@ -17,9 +17,10 @@ type APIView[T any, ID comparable] struct {
 	Repository Repository[T, ID]
 	Serializer Serializer[T]
 
-	Auth        []string
-	Middlewares []gin.HandlerFunc
-	Handler     gin.HandlerFunc
+	Auth           []string
+	AllowAnonymous []string
+	Middlewares    []gin.HandlerFunc
+	Handler        gin.HandlerFunc
 
 	Permissions       []Permission
 	ActionPermissions map[string][]Permission
@@ -49,17 +50,20 @@ func (v *APIView[T, ID]) Register(r gin.IRouter) {
 	method := normalizeMethodKey(v.Method)
 	path := normalizeBasePath(v.Path)
 	validateAuthConfig(v.Auth)
+	validateAuthConfig(v.AllowAnonymous)
 
 	handler := v.Handler
+	action := apiViewAction(method, path)
 	if handler == nil {
 		handler = v.defaultHandler(method, path)
 	}
-	r.Handle(strings.ToUpper(method), path, v.routeHandlers(method, handler)...)
+	v.markAnonymousRoute(method, path, action)
+	r.Handle(strings.ToUpper(method), path, v.routeHandlers(method, action, handler)...)
 }
 
-func (v *APIView[T, ID]) routeHandlers(method string, handler gin.HandlerFunc) []gin.HandlerFunc {
+func (v *APIView[T, ID]) routeHandlers(method string, action string, handler gin.HandlerFunc) []gin.HandlerFunc {
 	handlers := make([]gin.HandlerFunc, 0, 1+len(v.Middlewares)+1)
-	if authRequired(v.Auth, method) {
+	if v.routeAuthRequired(method, action) {
 		if v.app == nil {
 			panic("sgin: APIView Auth requires App.Register")
 		}
@@ -68,6 +72,31 @@ func (v *APIView[T, ID]) routeHandlers(method string, handler gin.HandlerFunc) [
 	handlers = appendHandlers(handlers, v.Middlewares...)
 	handlers = append(handlers, handler)
 	return handlers
+}
+
+func (v *APIView[T, ID]) routeAuthRequired(method string, action string) bool {
+	if authRequired(v.Auth, method, action) {
+		return true
+	}
+	if authRequired(v.AllowAnonymous, method, action) {
+		return false
+	}
+	if v.app != nil && v.app.usesDefaultAuthMiddleware() {
+		return false
+	}
+	return v.config().Auth.Required
+}
+
+func (v *APIView[T, ID]) markAnonymousRoute(method string, path string, action string) {
+	if v.app == nil || !v.app.usesDefaultAuthMiddleware() {
+		return
+	}
+	if authRequired(v.Auth, method, action) {
+		return
+	}
+	if authRequired(v.AllowAnonymous, method, action) {
+		v.app.markAnonymousRoute(method, path)
+	}
 }
 
 func (v *APIView[T, ID]) defaultHandler(method string, path string) gin.HandlerFunc {
@@ -104,6 +133,7 @@ func (v *APIView[T, ID]) model() *ModelViewSet[T, ID] {
 		BasePath:          v.Path,
 		Repository:        v.Repository,
 		Serializer:        v.Serializer,
+		AllowAnonymous:    v.AllowAnonymous,
 		Permissions:       v.Permissions,
 		ActionPermissions: v.ActionPermissions,
 		ObjectPermissions: v.ObjectPermissions,
@@ -117,6 +147,34 @@ func (v *APIView[T, ID]) model() *ModelViewSet[T, ID] {
 		DefaultOrdering:   v.DefaultOrdering,
 		FilterFields:      v.FilterFields,
 		app:               v.app,
+	}
+}
+
+func (v *APIView[T, ID]) config() Config {
+	if v.app != nil {
+		return v.app.config
+	}
+	return DefaultConfig()
+}
+
+func apiViewAction(method string, path string) string {
+	hasID := routeHasID(path)
+	switch method {
+	case strings.ToLower(http.MethodGet):
+		if hasID {
+			return ActionRetrieve
+		}
+		return ActionList
+	case strings.ToLower(http.MethodPost):
+		return ActionCreate
+	case strings.ToLower(http.MethodPut):
+		return ActionUpdate
+	case strings.ToLower(http.MethodPatch):
+		return ActionPartialUpdate
+	case strings.ToLower(http.MethodDelete):
+		return ActionDestroy
+	default:
+		return ""
 	}
 }
 
