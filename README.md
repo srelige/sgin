@@ -173,6 +173,39 @@ SGIN_JWT_EXPIRED
 SGIN_JWT_REFRESH_EXPIRED
 ```
 
+## 默认认证
+
+当配置中开启默认认证：
+
+```yaml
+auth:
+  required: true
+```
+
+框架会把后续注册的接口默认视为“需要登录后访问”。这里的认证只表示请求必须携带有效的 sgin access token，用来确认“你是谁”；它不代表用户已经拥有某个业务权限。登录后的用户能不能访问具体资源，仍然由业务 middleware、用户组/角色/动态路由权限或 service 逻辑决定。
+
+默认认证覆盖这些入口：
+
+```txt
+ModelViewSet
+ReadOnlyModelViewSet
+APIView
+普通 Gin 路由
+```
+
+登录接口和 refresh 接口是固定例外，永远不受 `auth.required` 影响，否则用户会因为还没登录而无法访问登录入口。
+
+如果某个接口要公开访问，需要显式声明。ViewSet/APIView 使用 `AllowAnonymous`，普通 Gin 路由使用 `app.AllowAnonymous(method, path)`。
+
+如果把默认认证关闭：
+
+```yaml
+auth:
+  required: false
+```
+
+接口默认公开；仍需要登录的 ViewSet/APIView 可以用 `Auth` 单独保护，普通 Gin 路由可以继续手动挂 `app.JWTAuth()`。
+
 ## 用户登录
 
 当配置中开启用户功能：
@@ -203,9 +236,7 @@ POST /login/refresh
 
 登录成功返回 `access_token` 和 `refresh_token`。`jwt.expired` 是 access token 有效期，单位小时；`jwt.refresh_expired` 是 refresh token 有效期，单位小时。refresh token 只在数据库保存 SHA-256 摘要，刷新时会轮换。用户表包含 `enabled` 字段；账号被禁用时会在密码校验前拒绝登录。
 
-`auth.required` 控制框架默认认证行为，默认值是 `true`。默认开启时，`ModelViewSet`、`ReadOnlyModelViewSet`、`APIView` 和后续注册的普通 Gin 路由默认都需要携带 access token；登录接口和 refresh 接口永远公开，不受该配置影响。某个 ViewSet/APIView 接口需要公开时，在注册处使用 `AllowAnonymous` 显式声明；普通 Gin 路由可以用 `app.AllowAnonymous(method, path)` 显式放行。
-
-如果把 `auth.required` 改为 `false`，接口默认公开；仍需要登录的 ViewSet/APIView 接口可以继续使用 `Auth` 显式声明，普通 Gin 路由可以继续手动挂 `app.JWTAuth()`。保护接口可使用：
+默认认证配置只决定接口访问前是否必须登录，不改变登录接口自身的公开属性。需要在普通 Gin 路由上手动组合认证时，可直接使用：
 
 ```go
 app.GET("/me", app.JWTAuth(), func(c *sgin.Context) {
