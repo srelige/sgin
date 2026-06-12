@@ -51,6 +51,24 @@ type AccessPermission struct {
 
 func (AccessPermission) TableName() string { return "sgin_permissions" }
 
+// AccessMenu represents a frontend menu or desktop entry controlled by permissions.
+type AccessMenu struct {
+	ID             uint         `json:"id" gorm:"primaryKey"`
+	ParentID       *uint        `json:"parent_id" gorm:"index"`
+	Name           string       `json:"name" gorm:"uniqueIndex;size:191;not null"`
+	Title          string       `json:"title"`
+	Path           string       `json:"path"`
+	Icon           string       `json:"icon"`
+	PermissionCode string       `json:"permission_code" gorm:"index;size:191"`
+	Sort           int          `json:"sort"`
+	Enabled        bool         `json:"enabled" gorm:"not null;default:true"`
+	Children       []AccessMenu `json:"children,omitempty" gorm:"-"`
+	CreatedAt      time.Time    `json:"created_at"`
+	UpdatedAt      time.Time    `json:"updated_at"`
+}
+
+func (AccessMenu) TableName() string { return "sgin_menus" }
+
 // RoutePermission binds a method/path pair to a permission code.
 type RoutePermission struct {
 	ID             uint      `json:"id" gorm:"primaryKey"`
@@ -120,6 +138,10 @@ func (a AccessInfo) HasPermission(permission string) bool {
 		return true
 	}
 	return containsAny(a.Permissions, permission)
+}
+
+func (a AccessInfo) IsAdmin() bool {
+	return containsAny(a.Groups, "admin")
 }
 
 // CurrentAccess returns the access context for the current request.
@@ -270,8 +292,8 @@ func (a *App) loadAccess(c *gin.Context) (AccessInfo, Decision) {
 		return AccessInfo{}, Deny(ErrCodePermissionDenied, "permission check failed")
 	}
 
-	var user UserAccount
-	if err := db.Preload("Groups.Roles.Permissions").Preload("Roles.Permissions").First(&user, userID).Error; err != nil {
+	user, err := loadUserWithAccess(db, userID)
+	if err != nil {
 		return AccessInfo{}, Deny(ErrCodeInvalidToken, "invalid access token")
 	}
 	if !user.Enabled {
@@ -281,6 +303,14 @@ func (a *App) loadAccess(c *gin.Context) (AccessInfo, Decision) {
 	access := buildAccessInfo(user)
 	c.Set("user", user)
 	return access, Allow()
+}
+
+func loadUserWithAccess(db *gorm.DB, userID uint) (UserAccount, error) {
+	var user UserAccount
+	if err := db.Preload("Groups.Roles.Permissions").Preload("Roles.Permissions").First(&user, userID).Error; err != nil {
+		return UserAccount{}, err
+	}
+	return user, nil
 }
 
 func userIDFromContext(c *gin.Context) (uint, bool) {
@@ -331,12 +361,45 @@ func buildAccessInfo(user UserAccount) AccessInfo {
 	}
 }
 
+func (a *App) visibleMenus(db *gorm.DB, access AccessInfo) ([]AccessMenu, error) {
+	var menus []AccessMenu
+	if err := db.Where("enabled = ?", true).Order("sort ASC, id ASC").Find(&menus).Error; err != nil {
+		return nil, err
+	}
+	return buildVisibleMenuTree(menus, access, nil), nil
+}
+
+func buildVisibleMenuTree(menus []AccessMenu, access AccessInfo, parentID *uint) []AccessMenu {
+	var visible []AccessMenu
+	for _, menu := range menus {
+		if !sameMenuParent(menu.ParentID, parentID) {
+			continue
+		}
+		children := buildVisibleMenuTree(menus, access, &menu.ID)
+		canSee := strings.TrimSpace(menu.PermissionCode) == "" || access.HasPermission(menu.PermissionCode)
+		if !canSee && len(children) == 0 {
+			continue
+		}
+		menu.Children = children
+		visible = append(visible, menu)
+	}
+	return visible
+}
+
+func sameMenuParent(a *uint, b *uint) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
+}
+
 func migrateAccessModels(db *gorm.DB) error {
 	return db.AutoMigrate(
 		&UserAccount{},
 		&AccessGroup{},
 		&AccessRole{},
 		&AccessPermission{},
+		&AccessMenu{},
 		&RoutePermission{},
 		&UserGroup{},
 		&UserRole{},

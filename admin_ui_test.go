@@ -165,10 +165,14 @@ func TestAdminUIAPIManagesUsersAndAccessRecords(t *testing.T) {
 	group := adminUIJSON[AccessGroup](t, app, token, http.MethodPost, "/sgin-admin/api/groups", `{"name":"member","description":"members"}`, http.StatusCreated)
 	role := adminUIJSON[AccessRole](t, app, token, http.MethodPost, "/sgin-admin/api/roles", `{"name":"member_reader","description":"reader"}`, http.StatusCreated)
 	permission := adminUIJSON[AccessPermission](t, app, token, http.MethodPost, "/sgin-admin/api/permissions", `{"code":"member.view","name":"View member"}`, http.StatusCreated)
+	menu := adminUIJSON[AccessMenu](t, app, token, http.MethodPost, "/sgin-admin/api/menus", `{"name":"members","title":"Members","path":"/members","permission_code":"member.view","sort":10}`, http.StatusCreated)
 	route := adminUIJSON[RoutePermission](t, app, token, http.MethodPost, "/sgin-admin/api/route-permissions", `{"method":"get","path":"/members","permission_code":"member.view","enabled":true}`, http.StatusCreated)
 
-	if group.ID == 0 || role.ID == 0 || permission.ID == 0 || route.ID == 0 {
+	if group.ID == 0 || role.ID == 0 || permission.ID == 0 || menu.ID == 0 || route.ID == 0 {
 		t.Fatal("expected created access records to have ids")
+	}
+	if menu.Name != "members" || menu.Title != "Members" || menu.PermissionCode != "member.view" || !menu.Enabled {
+		t.Fatalf("unexpected menu: %+v", menu)
 	}
 	if route.Method != http.MethodGet || route.Path != "/members" || route.PermissionCode != "member.view" || !route.Enabled {
 		t.Fatalf("unexpected route permission: %+v", route)

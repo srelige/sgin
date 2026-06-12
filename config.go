@@ -4,6 +4,8 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"strings"
+	"time"
 )
 
 // Config 是 sgin 的完整配置结构。
@@ -14,6 +16,7 @@ type Config struct {
 	Database DatabaseConfig `yaml:"database" json:"database"`
 	Redis    RedisConfig    `yaml:"redis" json:"redis"`
 	Auth     AuthConfig     `yaml:"auth" json:"auth"`
+	CORS     CORSConfig     `yaml:"cors" json:"cors"`
 	REST     RESTConfig     `yaml:"rest" json:"rest"`
 	User     UserConfig     `yaml:"user" json:"user"`
 	Admin    AdminConfig    `yaml:"admin" json:"admin"`
@@ -52,6 +55,18 @@ type RedisConfig struct {
 
 type AuthConfig struct {
 	Required bool `yaml:"required" json:"required"`
+}
+
+// CORSConfig 描述跨域资源共享配置。
+// 默认关闭；启用后会在所有框架路由前注册全局 CORS 中间件。
+type CORSConfig struct {
+	Enabled          bool     `yaml:"enabled" json:"enabled"`
+	AllowOrigins     []string `yaml:"allow_origins" json:"allow_origins"`
+	AllowMethods     []string `yaml:"allow_methods" json:"allow_methods"`
+	AllowHeaders     []string `yaml:"allow_headers" json:"allow_headers"`
+	ExposeHeaders    []string `yaml:"expose_headers" json:"expose_headers"`
+	AllowCredentials bool     `yaml:"allow_credentials" json:"allow_credentials"`
+	MaxAge           string   `yaml:"max_age" json:"max_age"`
 }
 
 // RESTConfig 描述 ViewSet/REST 层默认行为。
@@ -115,6 +130,13 @@ func DefaultConfig() Config {
 		},
 		Auth: AuthConfig{
 			Required: true,
+		},
+		CORS: CORSConfig{
+			Enabled:      false,
+			AllowOrigins: []string{},
+			AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+			AllowHeaders: []string{"Origin", "Content-Type", "Accept", "Authorization"},
+			MaxAge:       "12h",
 		},
 		REST: RESTConfig{
 			Pagination:      false,
@@ -214,7 +236,47 @@ func ValidateConfig(cfg Config) error {
 	if cfg.JWT.RefreshExpired <= 0 {
 		return fmt.Errorf("sgin: jwt.refresh_expired must be greater than 0")
 	}
+	if cfg.CORS.Enabled {
+		if len(nonEmptyStrings(cfg.CORS.AllowOrigins)) == 0 {
+			return fmt.Errorf("sgin: cors.allow_origins cannot be empty when CORS is enabled")
+		}
+		if cfg.CORS.AllowCredentials && containsString(cfg.CORS.AllowOrigins, "*") {
+			return fmt.Errorf("sgin: cors.allow_origins cannot contain * when cors.allow_credentials is true")
+		}
+		if len(nonEmptyStrings(cfg.CORS.AllowMethods)) == 0 {
+			return fmt.Errorf("sgin: cors.allow_methods cannot be empty when CORS is enabled")
+		}
+		if cfg.CORS.MaxAge != "" {
+			maxAge, err := time.ParseDuration(cfg.CORS.MaxAge)
+			if err != nil {
+				return fmt.Errorf("sgin: cors.max_age must be a valid duration")
+			}
+			if maxAge < 0 {
+				return fmt.Errorf("sgin: cors.max_age cannot be negative")
+			}
+		}
+	}
 	return nil
+}
+
+func nonEmptyStrings(values []string) []string {
+	var cleaned []string
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			cleaned = append(cleaned, value)
+		}
+	}
+	return cleaned
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if strings.EqualFold(strings.TrimSpace(value), target) {
+			return true
+		}
+	}
+	return false
 }
 
 func randomConfigSecret() string {

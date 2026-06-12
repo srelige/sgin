@@ -87,11 +87,23 @@ type refreshRequest struct {
 }
 
 type tokenResponse struct {
-	AccessToken      string `json:"access_token"`
-	RefreshToken     string `json:"refresh_token"`
-	TokenType        string `json:"token_type"`
-	ExpiresIn        int    `json:"expires_in"`
-	RefreshExpiresIn int    `json:"refresh_expires_in"`
+	AccessToken      string             `json:"access_token"`
+	RefreshToken     string             `json:"refresh_token"`
+	TokenType        string             `json:"token_type"`
+	ExpiresIn        int                `json:"expires_in"`
+	RefreshExpiresIn int                `json:"refresh_expires_in"`
+	User             *loginUserResponse `json:"user,omitempty"`
+	Menus            []AccessMenu       `json:"menus,omitempty"`
+	Permissions      []string           `json:"permissions,omitempty"`
+}
+
+type loginUserResponse struct {
+	ID       uint     `json:"id"`
+	Username string   `json:"username"`
+	Admin    bool     `json:"admin"`
+	Enabled  bool     `json:"enabled"`
+	Groups   []string `json:"groups"`
+	Roles    []string `json:"roles"`
 }
 
 type authClaims struct {
@@ -278,7 +290,7 @@ func (a *App) handleLogin(c *gin.Context) {
 		return
 	}
 
-	resp, err := a.issueTokenPair(db, &user)
+	resp, err := a.issueTokenPair(db, &user, true)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -329,7 +341,7 @@ func (a *App) handleRefreshToken(c *gin.Context) {
 		return
 	}
 
-	resp, err := a.issueTokenPair(db, &user)
+	resp, err := a.issueTokenPair(db, &user, false)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -337,7 +349,7 @@ func (a *App) handleRefreshToken(c *gin.Context) {
 	JSON(c, http.StatusOK, OK(resp))
 }
 
-func (a *App) issueTokenPair(db *gorm.DB, user *UserAccount) (tokenResponse, error) {
+func (a *App) issueTokenPair(db *gorm.DB, user *UserAccount, includeAccessSnapshot bool) (tokenResponse, error) {
 	accessTTL := time.Duration(a.config.JWT.Expired) * time.Hour
 	refreshTTL := time.Duration(a.config.JWT.RefreshExpired) * time.Hour
 	accessToken, err := makeAuthToken(a.config, user, "access", accessTTL)
@@ -354,12 +366,52 @@ func (a *App) issueTokenPair(db *gorm.DB, user *UserAccount) (tokenResponse, err
 	if err := db.Save(user).Error; err != nil {
 		return tokenResponse{}, err
 	}
-	return tokenResponse{
+	resp := tokenResponse{
 		AccessToken:      accessToken,
 		RefreshToken:     refreshToken,
 		TokenType:        "Bearer",
 		ExpiresIn:        int(accessTTL.Seconds()),
 		RefreshExpiresIn: int(refreshTTL.Seconds()),
+	}
+	if includeAccessSnapshot {
+		snapshot, err := a.loginAccessSnapshot(db, user.ID)
+		if err != nil {
+			return tokenResponse{}, err
+		}
+		resp.User = snapshot.User
+		resp.Menus = snapshot.Menus
+		resp.Permissions = snapshot.Permissions
+	}
+	return resp, nil
+}
+
+type loginAccessSnapshot struct {
+	User        *loginUserResponse
+	Menus       []AccessMenu
+	Permissions []string
+}
+
+func (a *App) loginAccessSnapshot(db *gorm.DB, userID uint) (loginAccessSnapshot, error) {
+	user, err := loadUserWithAccess(db, userID)
+	if err != nil {
+		return loginAccessSnapshot{}, err
+	}
+	access := buildAccessInfo(user)
+	menus, err := a.visibleMenus(db, access)
+	if err != nil {
+		return loginAccessSnapshot{}, err
+	}
+	return loginAccessSnapshot{
+		User: &loginUserResponse{
+			ID:       user.ID,
+			Username: user.Username,
+			Admin:    user.IsAdmin() || access.IsAdmin(),
+			Enabled:  user.Enabled,
+			Groups:   access.Groups,
+			Roles:    access.Roles,
+		},
+		Menus:       menus,
+		Permissions: access.Permissions,
 	}, nil
 }
 

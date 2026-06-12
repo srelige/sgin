@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -122,6 +123,13 @@ func ApplyEnvOverrides(cfg *Config) {
 	setBoolEnv("SGIN_ADMIN_ENABLED", &cfg.Admin.Enabled)
 	setStringEnv("SGIN_ADMIN_PATH", &cfg.Admin.Path)
 	setBoolEnv("SGIN_AUTH_REQUIRED", &cfg.Auth.Required)
+	setBoolEnv("SGIN_CORS_ENABLED", &cfg.CORS.Enabled)
+	setStringSliceEnv("SGIN_CORS_ALLOW_ORIGINS", &cfg.CORS.AllowOrigins)
+	setStringSliceEnv("SGIN_CORS_ALLOW_METHODS", &cfg.CORS.AllowMethods)
+	setStringSliceEnv("SGIN_CORS_ALLOW_HEADERS", &cfg.CORS.AllowHeaders)
+	setStringSliceEnv("SGIN_CORS_EXPOSE_HEADERS", &cfg.CORS.ExposeHeaders)
+	setBoolEnv("SGIN_CORS_ALLOW_CREDENTIALS", &cfg.CORS.AllowCredentials)
+	setStringEnv("SGIN_CORS_MAX_AGE", &cfg.CORS.MaxAge)
 	setBoolEnv("SGIN_REST_PAGINATION", &cfg.REST.Pagination)
 	setIntEnv("SGIN_REST_DEFAULT_PAGE", &cfg.REST.DefaultPage)
 	setIntEnv("SGIN_REST_DEFAULT_PAGE_SIZE", &cfg.REST.DefaultPageSize)
@@ -150,6 +158,13 @@ var sginEnvKeys = []string{
 	"SGIN_ADMIN_ENABLED",
 	"SGIN_ADMIN_PATH",
 	"SGIN_AUTH_REQUIRED",
+	"SGIN_CORS_ENABLED",
+	"SGIN_CORS_ALLOW_ORIGINS",
+	"SGIN_CORS_ALLOW_METHODS",
+	"SGIN_CORS_ALLOW_HEADERS",
+	"SGIN_CORS_EXPOSE_HEADERS",
+	"SGIN_CORS_ALLOW_CREDENTIALS",
+	"SGIN_CORS_MAX_AGE",
 	"SGIN_REST_PAGINATION",
 	"SGIN_REST_DEFAULT_PAGE",
 	"SGIN_REST_DEFAULT_PAGE_SIZE",
@@ -187,5 +202,19 @@ func setIntEnv(key string, target *int) {
 		if parsed, err := strconv.Atoi(value); err == nil {
 			*target = parsed
 		}
+	}
+}
+
+func setStringSliceEnv(key string, target *[]string) {
+	if value, ok := os.LookupEnv(key); ok {
+		parts := strings.Split(value, ",")
+		values := make([]string, 0, len(parts))
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if part != "" {
+				values = append(values, part)
+			}
+		}
+		*target = values
 	}
 }

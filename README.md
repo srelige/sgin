@@ -120,6 +120,25 @@ redis:
 auth:
   required: true
 
+cors:
+  enabled: false
+  allow_origins: []
+  allow_methods:
+    - GET
+    - POST
+    - PUT
+    - PATCH
+    - DELETE
+    - OPTIONS
+  allow_headers:
+    - Origin
+    - Content-Type
+    - Accept
+    - Authorization
+  expose_headers: []
+  allow_credentials: false
+  max_age: 12h
+
 rest:
   pagination: false
   default_page: 1
@@ -160,6 +179,13 @@ SGIN_REDIS_ADDR
 SGIN_ADMIN_ENABLED
 SGIN_ADMIN_PATH
 SGIN_AUTH_REQUIRED
+SGIN_CORS_ENABLED
+SGIN_CORS_ALLOW_ORIGINS
+SGIN_CORS_ALLOW_METHODS
+SGIN_CORS_ALLOW_HEADERS
+SGIN_CORS_EXPOSE_HEADERS
+SGIN_CORS_ALLOW_CREDENTIALS
+SGIN_CORS_MAX_AGE
 SGIN_REST_PAGINATION
 SGIN_REST_DEFAULT_PAGE
 SGIN_REST_DEFAULT_PAGE_SIZE
@@ -208,6 +234,34 @@ auth:
 
 接口默认公开；仍需要登录的 ViewSet/APIView 可以用 `Auth` 单独保护，普通 Gin 路由可以继续手动挂 `app.JWTAuth()`。
 
+## 跨域配置
+
+CORS 默认关闭。前后端分离、本地 Vite 调试或跨域访问内置登录/Admin API 时，可以通过全局配置开启：
+
+```yaml
+cors:
+  enabled: true
+  allow_origins:
+    - http://127.0.0.1:5173
+  allow_methods:
+    - GET
+    - POST
+    - PUT
+    - PATCH
+    - DELETE
+    - OPTIONS
+  allow_headers:
+    - Origin
+    - Content-Type
+    - Accept
+    - Authorization
+  expose_headers: []
+  allow_credentials: false
+  max_age: 12h
+```
+
+`allow_origins` 必须显式配置；如果开启 `allow_credentials`，不能使用 `*` 作为来源。`max_age` 使用 Go duration 字符串，例如 `30m`、`12h`。更复杂的跨域策略仍可由业务项目自行注册 Gin middleware。
+
 ## 用户登录
 
 当配置中开启用户功能：
@@ -237,7 +291,11 @@ POST /login
 POST /login/refresh
 ```
 
-登录成功返回 `access_token` 和 `refresh_token`。`jwt.expired` 是 access token 有效期，单位小时；`jwt.refresh_expired` 是 refresh token 有效期，单位小时。refresh token 只在数据库保存 SHA-256 摘要，刷新时会轮换。用户表包含 `enabled` 字段；账号被禁用时会在密码校验前拒绝登录。
+登录成功返回 `access_token`、`refresh_token`、当前用户信息、权限点列表和可见菜单树。菜单和权限点是给前端首屏渲染使用的权限快照，避免登录后再请求一次菜单接口；它只用于前端显示控制，不作为安全边界。后端接口仍必须通过 middleware、动态路由权限、ViewSet 权限或业务 service 做最终校验。
+
+`jwt.expired` 是 access token 有效期，单位小时；`jwt.refresh_expired` 是 refresh token 有效期，单位小时。refresh token 只在数据库保存 SHA-256 摘要，刷新时会轮换。用户表包含 `enabled` 字段；账号被禁用时会在密码校验前拒绝登录。
+
+管理员修改用户权限后，已登录用户前端菜单不会自动刷新；用户退出并重新登录后会拿到新的菜单快照。但后端权限校验应始终以数据库当前状态为准，不能依赖前端是否隐藏了菜单或按钮。
 
 默认认证配置只决定接口访问前是否必须登录，不改变登录接口自身的公开属性。需要在普通 Gin 路由上手动组合认证时，可直接使用：
 
@@ -283,6 +341,7 @@ Admin UI 第一版提供这些能力：
 创建用户组
 创建角色
 创建权限点
+创建菜单
 创建路由权限
 绑定用户到用户组
 绑定用户到角色
@@ -1067,6 +1126,12 @@ app.Register(&sgin.APIView[models.CMDBAsset, uint]{
 	},
 })
 ```
+
+### 菜单权限快照
+
+`sgin_menus` 用于描述前端菜单、桌面图标或模块入口。菜单可以绑定 `permission_code`；用户登录成功时，框架会根据当前用户通过用户组/角色拥有的权限点，返回可见菜单树和权限点列表。没有 `permission_code` 的菜单可作为公共入口或父级分组；如果父级本身没有权限但包含可见子菜单，也会被保留在返回树里。
+
+这份快照是前端弱验证：它决定用户在页面上看见哪些入口和按钮，但不决定接口是否真的能执行。接口仍应使用 `LoadAccess()`、`RequireRoutePermission()`、ViewSet 权限接口或业务层逻辑做后端兜底。
 
 ### 动态路由权限
 

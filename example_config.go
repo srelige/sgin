@@ -35,6 +35,25 @@ redis:
 auth:
   required: true
 
+cors:
+  enabled: false
+  allow_origins: []
+  allow_methods:
+    - GET
+    - POST
+    - PUT
+    - PATCH
+    - DELETE
+    - OPTIONS
+  allow_headers:
+    - Origin
+    - Content-Type
+    - Accept
+    - Authorization
+  expose_headers: []
+  allow_credentials: false
+  max_age: 12h
+
 rest:
   pagination: false
   default_page: 1

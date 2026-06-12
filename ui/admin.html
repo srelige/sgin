@@ -27,6 +27,7 @@
     <section><h2>创建用户组</h2><input id="g" placeholder="group name"><button onclick="post('/groups',{name:v('g')})">创建</button></section>
     <section><h2>创建角色</h2><input id="r" placeholder="role name"><button onclick="post('/roles',{name:v('r')})">创建</button></section>
     <section><h2>创建权限点</h2><input id="pc" placeholder="permission code"><input id="pn" placeholder="name"><button onclick="post('/permissions',{code:v('pc'),name:v('pn')})">创建</button></section>
+    <section><h2>创建菜单</h2><input id="mn" placeholder="menu name"><input id="mt" placeholder="title"><input id="mp" placeholder="/path"><input id="mi" placeholder="icon"><input id="mpc" placeholder="permission code"><input id="ms" placeholder="sort"><button onclick="post('/menus',{name:v('mn'),title:v('mt'),path:v('mp'),icon:v('mi'),permission_code:v('mpc'),sort:num('ms')||0})">创建</button></section>
     <section><h2>创建路由权限</h2><select id="rm"><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option></select><input id="rp" placeholder="/cmdb"><input id="rpc" placeholder="cmdb.view"><button onclick="post('/route-permissions',{method:v('rm'),path:v('rp'),permission_code:v('rpc')})">创建</button></section>
     <section><h2>绑定用户到组</h2><input id="bugu" placeholder="user id"><input id="bugg" placeholder="group id"><button onclick="post('/users/'+v('bugu')+'/groups',{group_id:num('bugg')})">绑定</button></section>
     <section><h2>绑定用户到角色</h2><input id="buru" placeholder="user id"><input id="burr" placeholder="role id"><button onclick="post('/users/'+v('buru')+'/roles',{role_id:num('burr')})">绑定</button></section>
@@ -35,7 +36,7 @@
   </div>
     <section>
     <h2>查询</h2>
-    <input id="q" placeholder="输入用户名、组名、角色名、权限码或路由">
+    <input id="q" placeholder="输入用户名、组名、角色名、权限码、菜单或路由">
     <button onclick="filterState()">查询</button>
     <button onclick="loadState()">查询全部</button>
   </section>

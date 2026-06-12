@@ -36,6 +36,17 @@ type adminCreatePermissionRequest struct {
 	Description string `json:"description"`
 }
 
+type adminCreateMenuRequest struct {
+	ParentID       *uint  `json:"parent_id"`
+	Name           string `json:"name"`
+	Title          string `json:"title"`
+	Path           string `json:"path"`
+	Icon           string `json:"icon"`
+	PermissionCode string `json:"permission_code"`
+	Sort           int    `json:"sort"`
+	Enabled        *bool  `json:"enabled"`
+}
+
 type adminCreateRoutePermissionRequest struct {
 	Method         string `json:"method"`
 	Path           string `json:"path"`
@@ -60,6 +71,7 @@ type adminStateResponse struct {
 	Groups           []AccessGroup      `json:"groups"`
 	Roles            []AccessRole       `json:"roles"`
 	Permissions      []AccessPermission `json:"permissions"`
+	Menus            []AccessMenu       `json:"menus"`
 	RoutePermissions []RoutePermission  `json:"route_permissions"`
 }
 
@@ -81,6 +93,7 @@ func registerAdminRoutes(app *App) {
 	api.POST("/groups", app.handleAdminCreateGroup)
 	api.POST("/roles", app.handleAdminCreateRole)
 	api.POST("/permissions", app.handleAdminCreatePermission)
+	api.POST("/menus", app.handleAdminCreateMenu)
 	api.POST("/route-permissions", app.handleAdminCreateRoutePermission)
 	api.POST("/users/:id/groups", app.handleAdminBindUserGroup)
 	api.POST("/users/:id/roles", app.handleAdminBindUserRole)
@@ -132,6 +145,10 @@ func (a *App) handleAdminState(c *gin.Context) {
 		return
 	}
 	if err := db.Find(&resp.Permissions).Error; err != nil {
+		HandleError(c, err)
+		return
+	}
+	if err := db.Order("sort ASC, id ASC").Find(&resp.Menus).Error; err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -243,6 +260,32 @@ func (a *App) handleAdminCreatePermission(c *gin.Context) {
 		return
 	}
 	a.adminCreate(c, &permission)
+}
+
+func (a *App) handleAdminCreateMenu(c *gin.Context) {
+	var req adminCreateMenuRequest
+	if !bindAdminJSON(c, &req) {
+		return
+	}
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+	menu := AccessMenu{
+		ParentID:       req.ParentID,
+		Name:           strings.TrimSpace(req.Name),
+		Title:          strings.TrimSpace(req.Title),
+		Path:           strings.TrimSpace(req.Path),
+		Icon:           strings.TrimSpace(req.Icon),
+		PermissionCode: strings.TrimSpace(req.PermissionCode),
+		Sort:           req.Sort,
+		Enabled:        enabled,
+	}
+	if menu.Name == "" || menu.Title == "" {
+		HandleError(c, fmt.Errorf("%w: menu name and title are required", ErrBadRequest))
+		return
+	}
+	a.adminCreate(c, &menu)
 }
 
 func (a *App) handleAdminCreateRoutePermission(c *gin.Context) {

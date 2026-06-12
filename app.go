@@ -117,6 +117,9 @@ func NewE(opts ...Option) (*App, error) {
 		messages:        defaultMessages(),
 	}
 	app.Use(app.languageMiddleware())
+	if cfg.CORS.Enabled {
+		app.Use(app.corsMiddleware())
+	}
 	registerUserRoutes(app)
 	registerAdminRoutes(app)
 	if cfg.Auth.Required {

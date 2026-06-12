@@ -173,6 +173,13 @@ user:
 	t.Setenv("SGIN_REST_MAX_PAGE_SIZE", "60")
 	t.Setenv("SGIN_REST_STATIC_DIR", "/tmp/sgin-uploads")
 	t.Setenv("SGIN_AUTH_REQUIRED", "false")
+	t.Setenv("SGIN_CORS_ENABLED", "true")
+	t.Setenv("SGIN_CORS_ALLOW_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173")
+	t.Setenv("SGIN_CORS_ALLOW_METHODS", "GET,POST")
+	t.Setenv("SGIN_CORS_ALLOW_HEADERS", "Authorization,Content-Type")
+	t.Setenv("SGIN_CORS_EXPOSE_HEADERS", "X-Trace-ID")
+	t.Setenv("SGIN_CORS_ALLOW_CREDENTIALS", "true")
+	t.Setenv("SGIN_CORS_MAX_AGE", "30m")
 
 	cfg, err := LoadConfig(LoadOptions{
 		ConfigFile: configPath,
@@ -192,6 +199,9 @@ user:
 	}
 	if cfg.Auth.Required {
 		t.Fatal("expected auth.required env override")
+	}
+	if !cfg.CORS.Enabled || len(cfg.CORS.AllowOrigins) != 2 || len(cfg.CORS.AllowMethods) != 2 || len(cfg.CORS.AllowHeaders) != 2 || len(cfg.CORS.ExposeHeaders) != 1 || !cfg.CORS.AllowCredentials || cfg.CORS.MaxAge != "30m" {
+		t.Fatalf("expected cors env overrides, got %+v", cfg.CORS)
 	}
 }
 
@@ -365,6 +375,37 @@ func TestValidateConfigRejectsInvalidValues(t *testing.T) {
 			name: "jwt refresh expired",
 			mutate: func(cfg *Config) {
 				cfg.JWT.RefreshExpired = 0
+			},
+		},
+		{
+			name: "cors origins",
+			mutate: func(cfg *Config) {
+				cfg.CORS.Enabled = true
+				cfg.CORS.AllowOrigins = nil
+			},
+		},
+		{
+			name: "cors wildcard credentials",
+			mutate: func(cfg *Config) {
+				cfg.CORS.Enabled = true
+				cfg.CORS.AllowOrigins = []string{"*"}
+				cfg.CORS.AllowCredentials = true
+			},
+		},
+		{
+			name: "cors methods",
+			mutate: func(cfg *Config) {
+				cfg.CORS.Enabled = true
+				cfg.CORS.AllowOrigins = []string{"http://127.0.0.1:5173"}
+				cfg.CORS.AllowMethods = nil
+			},
+		},
+		{
+			name: "cors max age",
+			mutate: func(cfg *Config) {
+				cfg.CORS.Enabled = true
+				cfg.CORS.AllowOrigins = []string{"http://127.0.0.1:5173"}
+				cfg.CORS.MaxAge = "not-duration"
 			},
 		},
 	}
